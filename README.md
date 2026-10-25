@@ -6,9 +6,9 @@
 
 ## 当前状态
 
-项目处于职责梳理阶段，目前仅建立仓库与项目说明，尚未实现可运行服务。
+项目已整理为可编译的 Maven 多模块骨架，保留连接接口和原有 Netty WebSocket 接入代码，尚未形成可独立运行的完整网关。
 
-已明确的职责为连接管理、消息接收和消息发送。接入协议、技术选型、接口、消息可靠性与部署方式尚未确定；本文不代表相关能力已经实现或验证。
+已明确的职责为连接管理、消息接收和消息发送。当前保留 WebSocket 接入作为后续开发基础；业务服务之间的消息交接、消息可靠性与部署方式尚未实现或验证。
 
 ## 核心职责
 
@@ -50,8 +50,95 @@
 
 ## 本地开发
 
-当前尚无构建、启动或测试命令。开发环境与运行说明将在技术方案确认并完成相应实现后补充。
+### 项目结构
+
+```text
+pom.xml                      聚合全部模块
+bom/                         依赖版本管理，继承 Sparrow infra-bom
+messaging-protocol/           连接查询条件、传输指令、消息与会话 DTO
+messaging-po/                 消息领号种子 SessionMessageSeed
+messaging-dao-api/            种子的持久化访问接口
+messaging-dao-sparrow/        种子与 Sparrow ORM 的类型绑定
+messaging-domain/             连接接口、消息和会话仓储接口
+messaging-infrastructure/     Netty WebSocket 接入、握手认证、连接容器和心跳处理
+messaging-adapter/            HTTP 认证、当前用户与在线状态查询
+messaging-starter/            @EnableMessage 与 Spring 消息组件配置
+```
+
+源码模块直接继承 `messaging-bom`，父 POM 统一配置 `<relativePath/>`，按坐标从 Maven 仓库解析；根项目负责聚合构建，BOM 负责公共构建配置和依赖版本。
+
+主要模块依赖：
+
+- `adapter → infrastructure → domain → protocol`
+- `infrastructure → dao-sparrow → dao-api → po`
+
+Java 包名统一使用 `com.sparrow.messaging`，Maven groupId 为 `com.sparrowzoo.messaging`。
+
+所有原有模块均保留。`SessionMessageSeed` 的字段、主键和表映射沿用原始定义；DAO 主键类型为 `String`，对应 `seedKey`。这里只整理接口和 ORM 类型绑定，没有实现消息领号、原子递增、校准或恢复流程。
+
+清理的是依赖缺失的旧聊天实体及服务的类，例如旧 `Message`、`Session`、`SessionMeta` DAO 和持久化实现、联系人和群同步、聊天登录及历史消息接口；保留消息和会话的普通 DTO、仓储接口、Netty 接入及调试页。
+
+`messaging-po/bin` 中原有生成脚本和 SQL 已恢复保留，仍是旧项目的参考文件，不是当前种子表的迁移脚本，构建不会执行这些文件。
+
+### 编译
+
+环境要求：JDK 25+、Maven 3.8.6+。需预先提供 Sparrow 内部 `1.0.0-SNAPSHOT` 依赖，包括 `sparrow-parent`、`infra-bom`、`sparrow-protocol`、`authenticator-core` 和 `sparrow-starter` 及其传递依赖；通过本地 Maven 仓库或已有内部仓库解析。
+
+沿用 Sparrow 父项目的代码检查规则，`SPARROW_STYLE_DIR` 需指向包含 `sparrow_checkstyle.xml` 和 `check_style_suppressions.xml` 的目录。
+
+首次构建前，将本项目 BOM 安装到本地 Maven 仓库（已由私服提供时可跳过）：
+
+```bash
+mvn -B -N -f bom/pom.xml install
+```
+
+然后在根目录构建：
+
+```bash
+mvn -B clean verify
+```
+
+依赖已缓存时也可离线构建：
+
+```bash
+mvn -o -B clean verify
+```
+
+构建会执行代码规范检查、源码编译和 JAR 打包，不需要启动数据库、Redis 或其他服务。本次没有新增业务实现和自动化测试。
+
+### 当前限制
+
+- `ClientConnection` 和 `ConnectionRegistry` 只有接口，尚无实现；原有 `UserContainer` 仍是 Netty 侧的旧连接容器，尚未接入这些接口。
+- 保留的帧处理器仅处理原有文本 `PING/PONG`，消息接收、业务转交和下行发送留待后续实现，其他应用帧当前不会被业务处理。
+- 握手认证仍依赖 Spring 容器中的 `Authenticator`；尚未提供应用启动模块和运行配置，不提供独立服务启动命令。
+- 种子 DAO 目前只复用现有 ORM 的基础接口；自然主键读写、并发领号和 DDL 生成尚未验证，没有执行任何数据库操作。
+- 编译通过仅表示项目骨架和依赖正确，不代表网关功能已联调或可部署。
 
 ## 仓库
 
 [sparrowzoo/sparrow-messaging-gateway](https://github.com/sparrowzoo/sparrow-messaging-gateway)
+
+
+### Spring 接入
+
+业务项目引入 `com.sparrowzoo.messaging:messaging-starter:1.0.0-SNAPSHOT`，在 Spring 配置类上添加：
+
+```java
+import com.sparrow.messaging.starter.EnableMessage;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+@EnableMessage
+public class MessagingConfig {
+}
+```
+
+`@EnableMessage` 注册多设备连接管理、普通和分类消息处理器映射表、分发器，以及 MESSAGE、PING、USER_STATUS 事件处理器。默认消息分发使用本地 `RoutablePublisher`。
+
+业务处理器继承 `AbstractSpringTypedHandler` 并注册为 Spring Bean，初始化时自动加入分类消息处理器映射表。启用注解不启动 WebSocket、不绑定端口，也不初始化数据库或消息队列；WebSocket 服务启动和认证接入仍由业务项目负责。此模块使用 Spring Context，可以用于普通 Spring 或 Spring Boot 应用；无需额外扫描消息模块。
+
+验证 starter 配置与业务处理器接入：
+
+```bash
+mvn -o -B -pl messaging-starter -am test -DskipTests=false
+```
