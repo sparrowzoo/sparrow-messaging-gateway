@@ -33,7 +33,7 @@ public class TypedPubSubMappingContainer implements EventTypedHandlerMappingCont
     /**
      * {@code map<EventName,MQHandler>}
      */
-    private Map<Short, TypedSubscriber> messageTypeHandlerMapping = new HashMap<>();
+    private Map<EventType, Map<Short, TypedSubscriber>> messageTypeHandlerMapping = new HashMap<>();
 
     private Map<EventType, TypedSubscriber> eventTypeHandlerMapping = new HashMap<>();
 
@@ -43,12 +43,10 @@ public class TypedPubSubMappingContainer implements EventTypedHandlerMappingCont
             throw new IllegalArgumentException("Subscriber must not be null");
         }
         EventType eventType = handler.getEventType();
-        if (eventType == null) {
-            MessageType messageType = handler.getMessageType();
-            if (messageType == null || messageType.getIdentity() == null) {
-                throw new IllegalArgumentException("Subscriber must declare an event type or a message type with an identity");
-            }
-            this.messageTypeHandlerMapping.put(messageType.getIdentity().shortValue(), handler);
+        MessageType messageType = handler.getMessageType();
+        if (messageType != null) {
+            this.messageTypeHandlerMapping.computeIfAbsent(eventType, _ -> new HashMap<>());
+            this.messageTypeHandlerMapping.get(eventType).put(messageType.getIdentity().shortValue(), handler);
             return;
         }
         this.eventTypeHandlerMapping.put(eventType, handler);
@@ -65,7 +63,10 @@ public class TypedPubSubMappingContainer implements EventTypedHandlerMappingCont
     @Override
     public TypedSubscriber getMessageHandler(TypedEvent type) {
         if (this.messageTypeHandlerMapping != null) {
-            return messageTypeHandlerMapping.get(type.getMessageType());
+            Map<Short, TypedSubscriber> subscriberMap = messageTypeHandlerMapping.get(type.getEventType());
+            if (subscriberMap != null) {
+                return subscriberMap.get(type.getMessageType());
+            }
         }
         return null;
     }

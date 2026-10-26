@@ -24,8 +24,8 @@ import com.sparrow.messaging.protocol.EventType;
 import com.sparrow.messaging.protocol.Protocol;
 import com.sparrow.messaging.protocol.enums.DefaultEventType;
 import jakarta.inject.Inject;
-import lombok.extern.slf4j.Slf4j;
 import jakarta.inject.Named;
+import lombok.extern.slf4j.Slf4j;
 
 @Named
 @Slf4j

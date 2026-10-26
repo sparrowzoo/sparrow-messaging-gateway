@@ -60,7 +60,7 @@ public class WebSocketExampleApplication {
             Protocol pong = client.send(ping);
 
             Protocol message = new Protocol();
-            message.setEventType(DefaultEventType.MESSAGE);
+            message.setEventType(DefaultEventType.IM);
             message.setDevice(DeviceType.PC);
             message.setChatType(ChatType.ONE_2_ONE);
             message.setMessageType(ExampleMessageType.GREETING.getIdentity().shortValue());

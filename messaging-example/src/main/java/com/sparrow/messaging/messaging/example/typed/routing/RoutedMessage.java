@@ -39,6 +39,6 @@ public record RoutedMessage(String text, String routingKey) implements TypedEven
 
     @Override
     public EventType getEventType() {
-        return DefaultEventType.MESSAGE;
+        return DefaultEventType.IM;
     }
 }

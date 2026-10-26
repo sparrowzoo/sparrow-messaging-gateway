@@ -39,6 +39,6 @@ public record FileMessage(String text, short messageType) implements TypedEvent 
 
     @Override
     public EventType getEventType() {
-        return DefaultEventType.MESSAGE;
+        return DefaultEventType.IM;
     }
 }

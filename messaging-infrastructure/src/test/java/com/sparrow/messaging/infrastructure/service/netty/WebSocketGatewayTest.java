@@ -115,7 +115,7 @@ class WebSocketGatewayTest {
                 });
                 var user = new DefaultLoginUser();user.setUserId(1L);user.setCategory(1);user.setDeviceType(DeviceType.PC);
                 directory.register(new NettyWebsocketConnection(channel, user));
-                var message = new Protocol();message.setEventType(DefaultEventType.MESSAGE);
+                var message = new Protocol();message.setEventType(DefaultEventType.IM);
                 message.setDevice(DeviceType.PC);message.setChatType(ChatType.ONE_2_ONE);message.setClientSendTime(1L);
                 message.setSender(com.sparrow.messaging.protocol.ChatUser.longUserId(1L, 1));
                 message.setReceiver(com.sparrow.messaging.protocol.ChatUser.longUserId(2L, 1));

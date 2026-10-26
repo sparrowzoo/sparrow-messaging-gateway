@@ -90,7 +90,7 @@ class ReplySubscriberTest {
     }
 
     private List<Subscriber<Protocol>> replies() {
-        return List.of(new MessageEventSubscriber(), new PingSubscriber(), new UserStatusEventSubscriber());
+        return List.of(new IMEventSubscriber(), new PingSubscriber(), new UserStatusEventSubscriber());
     }
 
     private void injectEmptyDirectory(Subscriber<Protocol> subscriber) throws Exception {
@@ -99,7 +99,7 @@ class ReplySubscriberTest {
     }
 
     private Protocol message() {
-        var message = new Protocol();message.setEventType(DefaultEventType.MESSAGE);
+        var message = new Protocol();message.setEventType(DefaultEventType.IM);
         message.setSender(ChatUser.longUserId(1L, 1));message.setReceiver(ChatUser.longUserId(2L, 1));
         message.setDevice(DeviceType.PC);message.setChatType(ChatType.ONE_2_ONE);message.setClientSendTime(1L);
         return message;

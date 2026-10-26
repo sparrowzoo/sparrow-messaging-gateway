@@ -4,11 +4,36 @@
 
 当前已实现本地发布订阅、按路由选择发布器、多设备连接管理，以及 Netty 二进制 WebSocket 接入。`messaging-example` 提供普通、typed、文件、心跳/回执和真实 WebSocket 示例。RocketMQ 模块暂未进入本阶段交付范围，不作为默认可用链路。
 
+## 业务流程总览
+
+业务项目负责认证、消息内容和处理规则；网关负责连接与收发。应用可以直接发布本地消息，也可以通过 WebSocket 接收客户端消息。
+
+```mermaid
+flowchart TD
+    Local["业务代码主动发送"] --> Strategy["发布策略：按 routingKey 选择发布器"]
+    Client["客户端连接 /websocket"] --> Auth["业务项目提供 Authenticator"]
+    Auth -->|"认证成功"| Connection["登记用户和设备连接"]
+    Auth -->|"认证失败"| Reject["拒绝连接"]
+    Connection --> Parse["读取二进制 Protocol，使用认证身份设置发送者与设备"]
+    Parse --> Kind{"事件是否需要业务发布"}
+    Kind -->|"IM 等可发布事件"| Strategy
+    Strategy --> Publisher["选中的发布器"]
+    Publisher --> Target{"发布目标"}
+    Target -->|"本地"| Business["查找业务订阅者并调用 subscribe"]
+    Target -->|"文件示例"| File["只追加文件，由读取器另行消费"]
+    Publisher -->|"WebSocket 发布返回后"| Event["按 eventType 调用网关事件订阅者"]
+    Kind -->|"PING 等不发布事件"| Event
+    Event --> Reply["通过连接目录找到当前用户和设备，返回 ACK 或 PONG"]
+    Reply --> Client
+```
+
+图中的“业务订阅者”和“网关事件订阅者”职责不同：前者执行业务处理，后者处理 ACK、PONG 等网关响应。业务异常时不会继续发送成功 ACK，连接会关闭。自定义发布器若只负责落文件或入队，返回只代表该发布步骤完成，不能据此认为后续消费者已经处理成功。
+
 ## 当前能力与边界
 
 - `MultiDeviceConnectionRegistry` 按用户和设备登记连接，同用户同设备的新连接替换旧连接；旧关闭回调不会删除新连接。查询集合返回只读快照。
 - `NettyWebsocketConnection` 提供异步发送和关闭；本地写完成不代表客户端已经确认收到。
-- `WebSocketGateway` 解析二进制 `Protocol`，使用认证身份覆盖客户端填写的发送者和设备，再分发消息。MESSAGE 进入业务发布后生成 ACK；PING 返回 PONG。
+- `WebSocketGateway` 解析二进制 `Protocol`，使用认证身份覆盖客户端填写的发送者和设备，再分发消息。IM 进入业务发布后生成 ACK；PING 返回 PONG。
 - ACK 按当前用户和设备定位连接，因此重连后可以在新连接收到旧请求的 ACK，客户端应根据消息标识关联请求。ACK/PONG/状态发送的异步失败会记录 WARN，当前不自动重试。
 - 单帧及分片合计上限为 **655360 字节（640 KiB）**，不启用压缩。连续 10 秒没有读到数据时关闭连接，客户端应保持相应心跳。
 - 未支持的事件、损坏报文或业务处理异常会关闭连接；异常记录在服务端，不返回成功 ACK。可选首页资源没有提供时返回 HTTP 404。联系人在线状态目前仍是占位回复，不代表已实现真实查询。
@@ -72,12 +97,12 @@ public class MessagingConfig {
 }
 ```
 
-`@EnableMessage` 装配连接目录、普通/typed 映射表、`DefaultPublisher`、`DefaultTypedPublisher`、`TypedPublishStrategy` 和 MESSAGE、PING、USER_STATUS 事件订阅者。
+`@EnableMessage` 装配连接目录、普通/typed 映射表、`DefaultPublisher`、`DefaultTypedPublisher`、`TypedPublishStrategy` 和 IM、PING、USER_STATUS 事件订阅者。
 
 - 普通对象订阅者继承 `AbstractSpringSubscriber<你的消息类>`，实现 `subscribe` 并注册为 Spring Bean。
-- typed 业务订阅者继承 `AbstractSpringTypedSubscriber<你的消息类>`，实现 `subscribe`，通过 `getMessageType()` 声明业务消息编号。
-- 网关事件订阅使用 `getEventType()`；它与业务消息编号是两个查找入口。
-- 消息编号由业务管理，保持在协议的 0–65535 范围；同一个有效编号的后登记订阅者会覆盖前者。
+- typed 业务订阅者继承 `AbstractSpringTypedSubscriber<你的消息类>`，实现 `subscribe`，通过 `getEventType()` 和 `getMessageType()` 分别声明事件类型与业务消息编号；两者必须与发送的消息一致。
+- 只处理网关事件的订阅者使用 `getEventType()`，不声明 `getMessageType()`；它与业务订阅是两个查找入口。
+- 消息编号由业务管理，保持在协议的 0–65535 范围；同一事件类型下，同一个有效编号的后登记订阅者会覆盖前者；不同事件类型各自保存业务编号。
 
 两个订阅基类直接在 `afterSingletonsInstantiated()` 中取得最终 Spring Bean 并自行登记。登记先于 `SmartLifecycle.start()`，不依赖应用事件广播器是否异步，方法上的鉴权、事务等拦截仍然生效。订阅者须使用启动时创建的普通单例，不支持懒加载或依赖 `FactoryBean` 产品自动登记；开启全局懒加载时，须将订阅者显式设为 `@Lazy(false)`。不要在构造器或 `afterPropertiesSet` 中发送业务消息；子类覆盖该回调时须调用 `super.afterSingletonsInstantiated()`。
 
@@ -90,13 +115,58 @@ import org.springframework.context.annotation.Import;
 @Import(PublishStrategy.class)
 ```
 
-普通发布器按消息的 Java 类名精确找订阅者，typed 发布器按业务消息编号找订阅者。没有自动父类匹配，也没有普通/typed 之间的自动回退。
+普通发布器按消息的 Java 类名精确找订阅者，typed 发布器按事件类型与业务消息编号组合找订阅者。没有自动父类匹配，也没有普通/typed 之间的自动回退。
 
 验证 Spring 接入：
 
 ```bash
 mvn -o -B -pl messaging-starter -am test -DskipTests=false
 ```
+
+### 接入顺序
+
+```mermaid
+flowchart TD
+    Dependency["引入 messaging-starter"] --> Enable["配置类添加 @EnableMessage"]
+    Enable --> Beans["启动时创建普通单例订阅者 Bean"]
+    Beans --> Register["订阅基类在 afterSingletonsInstantiated 登记最终 Bean"]
+    Register --> Choice{"选择接入方式"}
+    Choice -->|"普通本地消息"| Plain["显式注册 PublishStrategy，按消息类名订阅"]
+    Choice -->|"typed 本地消息"| Typed["使用已装配的 TypedPublishStrategy，按事件类型和消息编号订阅"]
+    Choice -->|"WebSocket"| AuthBean["提供业务 Authenticator 和业务订阅者"]
+    AuthBean --> Bridge["把认证器、连接目录、typed 策略和订阅表绑定到 Sparrow 容器"]
+    Bridge --> Server["由业务项目管理 WebSocketServer 的启动与关闭"]
+    Plain --> Ready["登记完成后再发送消息"]
+    Typed --> Ready
+    Server --> Ready
+```
+
+| 接入事项 | 业务项目需要提供 | 框架提供 |
+| --- | --- | --- |
+| 普通本地消息 | `Event` 消息类、`AbstractSpringSubscriber` 子类、显式注册 `PublishStrategy` | 按消息类名登记、默认本地分发 |
+| typed 本地消息 | `TypedEvent` 消息、声明相同事件类型和业务编号的 `AbstractSpringTypedSubscriber` 子类 | `TypedPublishStrategy`、按事件类型与业务编号查找 |
+| 自定义发布目标 | 对应的 `Publisher` 或 `TypedPublisher` Bean，以及路由映射 | 按路由选择发布器及默认回退 |
+| WebSocket | 真实认证器、业务订阅者、Spring 与 Sparrow 容器绑定、服务器生命周期管理 | 握手与协议解析、连接目录、默认 IM 回执与心跳响应 |
+
+目前 typed 订阅表按两层索引查找：先找 `eventType`，再找 `messageType`。例如消息是 `IM + 101`，业务订阅者就必须同时返回 `DefaultEventType.IM` 和编号为 `101` 的 `MessageType`；只声明编号的订阅者会登记在空事件类型下面，无法匹配这个 IM 消息。
+
+业务订阅者需要同时声明两个值。例如接收 `IM + 101` 的订阅者，应在自己的 `AbstractSpringTypedSubscriber` 子类中实现：
+
+```java
+@Override
+public EventType getEventType() {
+    return DefaultEventType.IM;
+}
+
+@Override
+public MessageType getMessageType() {
+    return YourMessageType.TEXT; // 业务自行定义，getIdentity() 返回 101
+}
+```
+
+只处理 IM 回执的 `IMEventSubscriber` 则只声明事件类型，不声明业务编号，因此不会覆盖上面的业务订阅者。业务消息先经过业务订阅入口，网关响应再经过事件订阅入口。
+
+`IM` 的事件编号为 `8`，`AI` 为 `0`。默认 starter 装配 `IMEventSubscriber`，尚未自动装配 `AIEventSubscriber`；需要 AI 网关事件处理时，接入项目须显式注册它，并配置对应的 AI 业务订阅者。默认网关事件处理器本身不代替业务实现。
 
 ## 发布路由
 
@@ -110,6 +180,25 @@ sparrow.massaging.routing-publisher.mapping={'default':'defaultTypedPublisher','
 
 未配置时为空映射；显式空映射写 `{:}`，不要只写空等号。未映射的路由键保持原值。找不到发布器时，普通策略回退到 `defaultPublisher`，typed 策略回退到 `defaultTypedPublisher`；若使用自定义路由，应核对 Bean 名称，避免拼错后落入默认分发。
 
+### 发布器与订阅者如何衔接
+
+```mermaid
+flowchart TD
+    Message["业务消息"] --> StrategyKind{"使用哪个发布接口"}
+    StrategyKind -->|"Event"| PlainStrategy["PublishStrategy：在 Publisher 集合中按路由选 Bean"]
+    StrategyKind -->|"TypedEvent"| TypedStrategy["TypedPublishStrategy：在 TypedPublisher 集合中按路由选 Bean"]
+    PlainStrategy --> PlainPublisher["命中的自定义发布器，或 defaultPublisher"]
+    TypedStrategy --> TypedPublisher["命中的自定义发布器，或 defaultTypedPublisher"]
+    PlainPublisher -->|"本地分发"| PlainMap["PubSubMappingContainer：按完整消息类名查找"]
+    TypedPublisher -->|"本地分发"| TypedMap["TypedPubSubMappingContainer：按 eventType 和 messageType 查找"]
+    PlainMap --> Subscribe["调用业务订阅者 subscribe"]
+    TypedMap --> Subscribe
+    PlainPublisher -->|"自定义文件发布"| Store["写入文件，等待读取"]
+    TypedPublisher -->|"自定义文件发布"| Store
+```
+
+`routingKey` 决定消息发往哪个发布目标，`eventType` 和 `messageType` 决定 typed 消息由谁处理。两者不混用：切换发布目标不需要把文件读取器改成发布器；读取器直接查订阅表并调用 `subscribe`。
+
 ## WebSocket 接入
 
 `@EnableMessage` 不启动服务器、不绑定端口，也不提供生产认证。业务项目需要提供 `Authenticator`，并完成 Spring Bean 与 Netty 所用 Sparrow 容器的绑定。示例 `ExistingWebSocketServer` 展示了 `Authenticator`、`ConnectionRegistry`、`TypedPubSubMappingContainer` 和 `TypedPublishStrategy` 的绑定方式。
@@ -119,6 +208,42 @@ WebSocket 路径为 `/websocket`，应用消息使用二进制 `Protocol`，不�
 `MessageUniqueIdentify` 的两参数模式使用时间戳作为消息 ID，要求同一用户的 `clientSendTime` 唯一。同用户同毫秒可能有多条消息或多设备并发时，请使用带 `clientMessageId` 的三参数构造方法；重试复用原来的时间和 ID。
 
 默认服务器参数由系统属性指定：`host` 默认为 `0.0.0.0`，`port` 默认为 `8080`。`-Dssl` 启用本地自签证书示例，端口默认改为 `8443`。生产公网入口应使用受信证书，或由可信反向代理终止 TLS；临时自签证书不作为生产方案。
+
+### WebSocket 收发顺序
+
+```mermaid
+sequenceDiagram
+    participant C as 客户端
+    participant W as WebSocket 网关
+    participant A as 业务认证器
+    participant R as 连接目录
+    participant P as TypedPublishStrategy
+    participant B as 业务订阅者
+    participant E as 网关事件订阅者
+    C->>W: 握手连接 /websocket
+    W->>A: 校验凭证并取得用户和设备
+    A-->>W: 认证成功
+    W->>R: 登记当前连接
+    C->>W: 二进制 Protocol
+    W->>W: 校验连接，解析协议，设置认证身份
+    alt IM 业务消息，使用默认本地发布
+        W->>P: publish(protocol)
+        P->>B: 按事件类型和业务编号查找后调用 subscribe
+        B-->>P: 业务处理返回
+        P-->>W: 发布返回
+        W->>E: 按 IM 事件查找并调用 subscribe
+        E->>R: 查找发送者当前设备连接
+        R-->>E: 当前有效连接
+        E-->>C: 异步发送 ACK
+    else PING 心跳
+        W->>E: 按 PING 事件查找并调用 subscribe
+        E->>R: 查找发送者当前设备连接
+        R-->>E: 当前有效连接
+        E-->>C: 异步发送 PONG
+    end
+```
+
+上图展示默认本地发布。业务发布失败时不会进入成功回执步骤；未知网关事件也会关闭连接。ACK 是发送者这台设备收到的网关响应，不代表收件人已经收到或已读。业务下行消息由业务项目显式调用 `ConnectionRegistry` 查找目标连接，再使用 `ClientConnection.sendMessage(...)` 发送；本项目不会自动把任意业务消息转发给收件人。
 
 ### 客户端来源 IP
 
@@ -154,11 +279,11 @@ WebSocket 路径为 `/websocket`，应用消息使用二进制 `Protocol`，不�
 | 普通消息 | `greeting.MessagingExampleApplication` | 本地发布并交给普通订阅者 |
 | 普通路由 | `routing.RoutingExampleApplication` | 选择自定义普通发布器 |
 | 普通文件 | `file.FileExampleApplication` | 追加文件，再读取交给订阅者 |
-| typed 消息 | `typed.greeting.MessagingExampleApplication` | 按业务消息编号分发 |
+| typed 消息 | `typed.greeting.MessagingExampleApplication` | 按事件类型和业务消息编号分发 |
 | typed 路由 | `typed.routing.RoutingExampleApplication` | 选择自定义 typed 发布器 |
-| typed 文件 | `typed.file.FileExampleApplication` | 保存和读取消息编号及正文 |
+| typed 文件 | `typed.file.FileExampleApplication` | 保存和读取事件类型、消息编号及正文 |
 | 内存 PING/PONG | `typed.event.ping.PingExampleApplication` | 验证心跳响应 |
-| 内存 MESSAGE/ACK | `typed.event.message.MessageExampleApplication` | 验证业务消息和回执 |
+| 内存 IM/ACK | `typed.event.message.MessageExampleApplication` | 验证业务消息和回执 |
 | 真实 WebSocket | `websocket.WebSocketExampleApplication` | 启动本地示例服务并使用固定测试 token 收发；仅作演示 |
 
 可以在 IDE 直接运行对应 `main`。真实 WebSocket 示例会自行选择本地空闲端口；业务服务需要自行管理服务器启动和关闭。本地依赖已安装时，文件示例命令为：
@@ -178,6 +303,28 @@ mvn -o -B -pl messaging-example -am install -DskipTests
 普通文件路径配置为 `example.file.path`，默认 `target/file-example/messages.jsonl`；typed 文件为 `example.typed.file.path`，默认 `target/typed-file-example/messages.jsonl`。每行一条 UTF-8 JSON，父目录不存在时创建。
 
 文件例子每次追加一条再从头读一次，不删除文件，不持续监听，不记录消费进度；重复运行会再次处理历史消息。格式或读写失败直接报错，失败前的条目可能已经执行。它只适合受控本地演示；生产使用需要明确单行大小、消费进度和并发写入规则。
+
+### 文件发布与消费如何解耦
+
+```mermaid
+flowchart LR
+    subgraph Writing["发布步骤"]
+        Sender["业务代码"] --> Strategy["发布策略选择文件发布器"]
+        Strategy --> Writer["FilePublisher：只追加 JSON 行"]
+    end
+    Writer --> Disk[("指定文件")]
+    subgraph Reading["读取步骤"]
+        Reader["FileMessageReader.readOnce"] --> Decode["还原消息和类型信息"]
+        Decode --> Mapping{"普通还是 typed"}
+        Mapping -->|"普通"| ClassMap["按消息类名找订阅者"]
+        Mapping -->|"typed"| TypeMap["按事件类型和业务编号找订阅者"]
+        ClassMap --> Consumer["直接调用 subscribe"]
+        TypeMap --> Consumer
+    end
+    Disk --> Reader
+```
+
+发布器不调用读取器，读取器也不依赖 Publisher。示例入口为了展示完整过程，在同一个 `main` 中先发布、再显式读取一次；这两个步骤可以分别触发，但当前没有实现独立消费进程、持续监听或消费进度管理。typed 文件保存的是事件编号和消息编号，IM 示例对应 `eventType=8`。
 
 ## 仓库
 

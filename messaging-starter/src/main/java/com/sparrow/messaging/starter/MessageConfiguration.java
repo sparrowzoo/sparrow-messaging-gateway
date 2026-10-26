@@ -25,7 +25,7 @@ import com.sparrow.messaging.domain.service.pub.sub.typed.mapping.TypedPubSubMap
 import com.sparrow.messaging.domain.service.pub.sub.DefaultPublisher;
 import com.sparrow.messaging.domain.service.pub.sub.typed.DefaultTypedPublisher;
 import com.sparrow.messaging.domain.service.pub.sub.typed.TypedPublishStrategy;
-import com.sparrow.messaging.infrastructure.service.spring.event.MessageEventSubscriber;
+import com.sparrow.messaging.infrastructure.service.spring.event.IMEventSubscriber;
 import com.sparrow.messaging.infrastructure.service.spring.event.PingSubscriber;
 import com.sparrow.messaging.infrastructure.service.spring.event.UserStatusEventSubscriber;
 import org.springframework.context.annotation.Bean;
@@ -34,7 +34,7 @@ import org.springframework.context.annotation.Import;
 
 @Configuration(proxyBeanMethods = false)
 @Import({DefaultPublisher.class, DefaultTypedPublisher.class, PingSubscriber.class,
-            MessageEventSubscriber.class, UserStatusEventSubscriber.class})
+            IMEventSubscriber.class, UserStatusEventSubscriber.class})
 public class MessageConfiguration {
     @Bean
     public RoutingKeyPublisherMapping routingKeyPublisherMapping() {

@@ -24,7 +24,8 @@ import lombok.Getter;
 
 @Getter
 public enum DefaultEventType implements EventType {
-    MESSAGE(0, ProtocolSegmentIndex.USER_SEGMENT, true),
+    AI(0, ProtocolSegmentIndex.USER_SEGMENT, true),
+    IM(8, ProtocolSegmentIndex.USER_SEGMENT, true),
     //服务器收到消息
     ACK(10, ProtocolSegmentIndex.TIME_SEGMENT, false),
     //消息已受理

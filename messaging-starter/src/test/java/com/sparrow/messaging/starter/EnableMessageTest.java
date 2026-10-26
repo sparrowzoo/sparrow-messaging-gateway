@@ -23,7 +23,7 @@ import com.sparrow.messaging.domain.service.pub.sub.typed.TypedPublishStrategy;
 import com.sparrow.messaging.domain.service.pub.sub.typed.DefaultTypedPublisher;
 import com.sparrow.messaging.domain.service.pub.sub.typed.mapping.TypedPubSubMappingContainer;
 import com.sparrow.messaging.infrastructure.service.spring.AbstractSpringTypedSubscriber;
-import com.sparrow.messaging.infrastructure.service.spring.event.MessageEventSubscriber;
+import com.sparrow.messaging.infrastructure.service.spring.event.IMEventSubscriber;
 import com.sparrow.messaging.infrastructure.service.spring.event.PingSubscriber;
 import com.sparrow.messaging.infrastructure.service.spring.event.UserStatusEventSubscriber;
 import com.sparrow.messaging.protocol.EventType;
@@ -56,7 +56,7 @@ class EnableMessageTest {
             assertNotNull(context.getBean(DefaultTypedPublisher.class));
             var mappings = context.getBean(TypedPubSubMappingContainer.class);
             assertSame(context.getBean(PingSubscriber.class), mappings.getEventHandler(event(DefaultEventType.PING)));
-            assertInstanceOf(MessageEventSubscriber.class, mappings.getEventHandler(event(DefaultEventType.MESSAGE)));
+            assertInstanceOf(IMEventSubscriber.class, mappings.getEventHandler(event(DefaultEventType.IM)));
             assertInstanceOf(UserStatusEventSubscriber.class, mappings.getEventHandler(event(DefaultEventType.USER_STATUS)));
         }
     }
@@ -64,7 +64,7 @@ class EnableMessageTest {
     @Test
     void dispatchesMessagesToApplicationHandler() throws Throwable {
         try (var context = new AnnotationConfigApplicationContext(Application.class)) {
-            context.getBean(TypedPublishStrategy.class).publish(event(DefaultEventType.MESSAGE));
+            context.getBean(TypedPublishStrategy.class).publish(event(DefaultEventType.IM));
             assertTrue(context.getBean(ApplicationHandler.class).handled);
         }
     }
@@ -81,10 +81,10 @@ class EnableMessageTest {
             assertEquals("defaultTypedPublisher", mapping.getPublisherKey("default"));
             assertEquals("orderPublisher", mapping.getPublisherKey("orders"));
             assertEquals("unmapped", mapping.getPublisherKey("unmapped"));
-            TypedEvent order = event(DefaultEventType.MESSAGE, "orders");
+            TypedEvent order = event(DefaultEventType.IM, "orders");
             context.getBean(TypedPublishStrategy.class).publish(order);
             assertSame(order, context.getBean(CapturingPublisher.class).lastEvent);
-            context.getBean(TypedPublishStrategy.class).publish(event(DefaultEventType.MESSAGE));
+            context.getBean(TypedPublishStrategy.class).publish(event(DefaultEventType.IM));
             assertTrue(context.getBean(ApplicationHandler.class).handled);
         }
     }

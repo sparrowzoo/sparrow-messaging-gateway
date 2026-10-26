@@ -27,7 +27,7 @@ import jakarta.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
-public class MessageEventSubscriber extends AbstractSpringTypedSubscriber<Protocol> {
+public class IMEventSubscriber extends AbstractSpringTypedSubscriber<Protocol> {
 
     @Inject
     private ConnectionRegistry connectionRegistry;
@@ -54,6 +54,6 @@ public class MessageEventSubscriber extends AbstractSpringTypedSubscriber<Protoc
 
     @Override
     public EventType getEventType() {
-        return DefaultEventType.MESSAGE;
+        return DefaultEventType.IM;
     }
 }

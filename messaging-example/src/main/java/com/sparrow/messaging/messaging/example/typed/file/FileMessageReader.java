@@ -73,7 +73,7 @@ public class FileMessageReader {
             }
             if (!(json.get("messageType") instanceof Integer messageType)
                     || messageType < Short.MIN_VALUE || messageType > Short.MAX_VALUE
-                    || !DefaultEventType.MESSAGE.getIdentity().equals(json.get("eventType"))) {
+                    || !DefaultEventType.IM.getIdentity().equals(json.get("eventType"))) {
                 throw new IOException("Invalid message type at " + path + ":" + lineNumber);
             }
             return new FileMessage(text, messageType.shortValue());

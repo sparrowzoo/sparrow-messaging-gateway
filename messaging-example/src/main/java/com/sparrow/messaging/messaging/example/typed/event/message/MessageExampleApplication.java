@@ -45,7 +45,7 @@ public class MessageExampleApplication {
     public static Protocol sendMessage(ApplicationContext context) throws Throwable {
         try (var client = new EventExampleClient(context)) {
             Protocol message = new Protocol();
-            message.setEventType(DefaultEventType.MESSAGE);
+            message.setEventType(DefaultEventType.IM);
             message.setDevice(client.getDevice());
             message.setChatType(ChatType.ONE_2_ONE);
             message.setMessageType((short) 1);

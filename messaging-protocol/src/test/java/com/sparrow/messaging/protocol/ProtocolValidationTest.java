@@ -77,7 +77,7 @@ class ProtocolValidationTest {
     }
 
     private Protocol message(ChatUser sender) {
-        var message = timedAck();message.setEventType(DefaultEventType.MESSAGE);
+        var message = timedAck();message.setEventType(DefaultEventType.IM);
         message.setSender(sender);message.setReceiver(ChatUser.stringUserId("2", 1));
         return message;
     }

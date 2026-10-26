@@ -30,6 +30,6 @@ public record GreetingMessage(String text) implements TypedEvent {
 
     @Override
     public EventType getEventType() {
-        return DefaultEventType.MESSAGE;
+        return DefaultEventType.IM;
     }
 }
