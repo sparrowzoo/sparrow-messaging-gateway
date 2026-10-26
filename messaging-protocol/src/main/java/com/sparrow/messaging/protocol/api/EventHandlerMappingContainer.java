@@ -17,10 +17,13 @@
 
 package com.sparrow.messaging.protocol.api;
 
+import com.sparrow.messaging.protocol.Event;
 
 public interface EventHandlerMappingContainer {
 
-    void put(SubHandler handler);
+    void put(Subscriber handler);
 
-    SubHandler get(String key);
+    void put(Class<? extends Event> eventClass, Subscriber handler);
+
+    Subscriber get(String key);
 }

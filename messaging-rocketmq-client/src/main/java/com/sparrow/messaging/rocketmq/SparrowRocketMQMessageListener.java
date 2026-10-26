@@ -19,10 +19,10 @@ package com.sparrow.rocketmq.impl;
 
 import com.sparrow.messaging.protocol.Event;
 import com.sparrow.messaging.protocol.api.EventHandlerMappingContainer;
-import com.sparrow.messaging.protocol.api.SubHandler;
+import com.sparrow.messaging.protocol.api.Subscriber;
 import com.sparrow.pub.sub.MQClient;
 import com.sparrow.pub.sub.MQIdempotent;
-import com.sparrow.rocketmq.MessageConverter;
+import com.sparrow.messaging.rocketmq.MessageConverter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.client.consumer.listener.ConsumeConcurrentlyContext;
 import org.apache.rocketmq.client.consumer.listener.ConsumeConcurrentlyStatus;
@@ -76,30 +76,32 @@ public class SparrowRocketMQMessageListener implements MessageListenerConcurrent
                 if (log.isInfoEnabled()) {
                     log.info("receive msg:" + message);
                 }
-                SubHandler handler = queueHandlerMappingContainer.get(type);
+                Subscriber handler = queueHandlerMappingContainer.get(type);
                 if (handler == null) {
                     log.error("handler of this type [{}] not found", type);
                     return ConsumeConcurrentlyStatus.RECONSUME_LATER;
                 }
                 Event event = messageConverter.fromMessage(message);
-                //确定已经成功消费则返回
-                if (this.mqIdempotent.duplicate(message.getKeys())) {
-                    return ConsumeConcurrentlyStatus.CONSUME_SUCCESS;
+                // 只跳过当前重复消息，不能确认同批尚未执行的消息。
+                if (this.duplicate(event, message.getKeys())) {
+                    continue;
                 }
 
                 //尝试拿锁失败
-                if (!this.mqIdempotent.tryLock(message.getKeys(), this.getLockMills())) {
+                if (this.mqIdempotent != null && !this.mqIdempotent.tryLock(message.getKeys(), this.getLockMills())) {
                     //已经确定消费成功
                     if (this.mqIdempotent.duplicate(message.getKeys())) {
-                        return ConsumeConcurrentlyStatus.CONSUME_SUCCESS;
+                        continue;
                     }
                     //未消费成功
                     else {
                         return ConsumeConcurrentlyStatus.RECONSUME_LATER;
                     }
                 }
-                handler.handle(event);
-                this.mqIdempotent.consumed(message.getKeys(), this.getIdempotentSeconds());
+                handler.subscribe(event);
+                if (this.mqIdempotent != null) {
+                    this.mqIdempotent.consumed(message.getKeys(), this.getIdempotentSeconds());
+                }
             } catch (Throwable e) {
                 log.error("process failed, msg : " + message, e);
                 return ConsumeConcurrentlyStatus.RECONSUME_LATER;

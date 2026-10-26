@@ -48,6 +48,8 @@ import io.netty.handler.codec.http.HttpUtil;
 import io.netty.handler.ssl.SslHandler;
 import io.netty.util.CharsetUtil;
 
+import java.io.FileNotFoundException;
+
 import static io.netty.handler.codec.http.HttpMethod.GET;
 import static io.netty.handler.codec.http.HttpResponseStatus.BAD_REQUEST;
 import static io.netty.handler.codec.http.HttpResponseStatus.FORBIDDEN;
@@ -83,7 +85,13 @@ public class WebSocketIndexPageHandler extends SimpleChannelInboundHandler<FullH
         // Send the index page
         if ("/".equals(req.uri()) || "/index.html".equals(req.uri())) {
             String webSocketLocation = getWebSocketLocation(ctx.pipeline(), req, websocketPath);
-            ByteBuf content = WebSocketServerIndexPage.getContent(webSocketLocation);
+            ByteBuf content;
+            try {
+                content = WebSocketServerIndexPage.getContent(webSocketLocation);
+            } catch (FileNotFoundException e) {
+                sendHttpResponse(ctx, req, new DefaultFullHttpResponse(HTTP_1_1, NOT_FOUND));
+                return;
+            }
             FullHttpResponse res = new DefaultFullHttpResponse(HTTP_1_1, OK, content);
 
             res.headers().set(HttpHeaderNames.CONTENT_TYPE, "text/html; charset=UTF-8");

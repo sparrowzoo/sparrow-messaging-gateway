@@ -22,6 +22,7 @@ import com.sparrow.authenticator.Authenticator;
 import com.sparrow.authenticator.enums.AuthenticatorError;
 import com.sparrow.authenticator.token.BearerToken;
 import com.sparrow.core.spi.ApplicationContext;
+import com.sparrow.messaging.domain.service.ClientConnection;
 import com.sparrow.messaging.domain.service.ConnectionRegistry;
 import com.sparrow.protocol.BusinessException;
 import com.sparrow.protocol.LoginUser;
@@ -29,15 +30,18 @@ import com.sparrow.protocol.Result;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.http.HttpHeaders;
-import io.netty.handler.codec.http.websocketx.CloseWebSocketFrame;
 import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
-import io.netty.handler.codec.http.websocketx.WebSocketFrame;
 import io.netty.handler.codec.http.websocketx.WebSocketServerProtocolHandler;
 import io.netty.handler.timeout.IdleStateEvent;
+import io.netty.util.NetUtil;
 import lombok.extern.slf4j.Slf4j;
 
 import java.net.InetSocketAddress;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 @Slf4j
 /**
@@ -45,6 +49,8 @@ import java.util.List;
  */
 public class WebSocketServerProtocolSupportHandshake extends WebSocketServerProtocolHandler {
     public static final String BIND = "AUTH_BIND";
+    private ClientConnection connection;
+    private final Set<InetAddress> trustedProxies;
 
     // js 不支持ping pong 帧
     // https://stackoverflow.com/questions/10585355/sending-websocket-ping-pong-frame-from-browser
@@ -79,43 +85,95 @@ public class WebSocketServerProtocolSupportHandshake extends WebSocketServerProt
      * @param maxLength
      */
     public WebSocketServerProtocolSupportHandshake(String websocketPath, Integer maxLength) {
-        super(websocketPath, "*", true, maxLength);
+        this(websocketPath, maxLength, Set.of());
     }
 
-    public String getClientIp(HandshakeComplete serverHandshakeComplete, Channel channel) {
-        HttpHeaders httpHeaders = serverHandshakeComplete.requestHeaders();
-        String clientIp = httpHeaders.get("X-Real-IP");
-        if (clientIp != null) {
-            return clientIp;
+    public WebSocketServerProtocolSupportHandshake(String websocketPath, Integer maxLength,
+                                                   Set<InetAddress> trustedProxies) {
+        super(websocketPath, "*", false, maxLength);
+        this.trustedProxies = trustedProxies == null ? Set.of() : Set.copyOf(trustedProxies);
+    }
+
+    /** 只对明确列出的代理采信转发头；不解析主机名，也不隐式信任内网或环回地址。 */
+    static Set<InetAddress> parseTrustedProxies(String configured) {
+        if (configured == null || configured.isBlank()) {
+            return Set.of();
         }
-        String xff = httpHeaders.get("X-Forwarded-For");
-        if (xff != null && !xff.isEmpty()) {
-            String[] ips = xff.split(",");
-            clientIp = ips[0];
-        } else {
-            // 直接连接的客户端 IP（无代理）
-            InetSocketAddress addr = (InetSocketAddress) channel.remoteAddress();
-            clientIp = addr.getAddress().getHostAddress();
+        Set<InetAddress> addresses = new HashSet<>();
+        for (String value : configured.split(",", -1)) {
+            InetAddress address = literalAddress(value);
+            if (address == null) {
+                throw new IllegalArgumentException("Trusted proxy must be a literal IP address: " + value);
+            }
+            addresses.add(address);
         }
-        return clientIp;
+        return Set.copyOf(addresses);
+    }
+
+    private static InetAddress literalAddress(String value) {
+        if (value == null) {
+            return null;
+        }
+        byte[] bytes = NetUtil.createByteArrayFromIpAddressString(value.trim());
+        if (bytes == null) {
+            return null;
+        }
+        try {
+            return InetAddress.getByAddress(bytes);
+        } catch (UnknownHostException e) {
+            throw new IllegalArgumentException("Invalid IP address", e);
+        }
+    }
+
+    public String getClientIp(HandshakeComplete handshake, Channel channel) {
+        if (!(channel.remoteAddress() instanceof InetSocketAddress socket) || socket.getAddress() == null) {
+            throw new IllegalArgumentException("Client socket address is unavailable");
+        }
+        InetAddress peer = socket.getAddress();
+        String socketIp = peer.getHostAddress();
+        if (!trustedProxies.contains(peer)) {
+            return socketIp;
+        }
+        HttpHeaders headers = handshake.requestHeaders();
+        List<String> forwardedHeaders = headers.getAll("X-Forwarded-For");
+        if (!forwardedHeaders.isEmpty()) {
+            String forwarded = String.join(",", forwardedHeaders);
+            String[] hops = forwarded.split(",", -1);
+            InetAddress client = peer;
+            // 从直连代理向左回溯；一旦遇到不可信来源，就不再相信其提供的前缀。
+            for (int i = hops.length - 1; i >= 0 && trustedProxies.contains(client); i--) {
+                InetAddress hop = literalAddress(hops[i]);
+                if (hop == null) {
+                    return socketIp;
+                }
+                client = hop;
+            }
+            return client.getHostAddress();
+        }
+        List<String> realIpHeaders = headers.getAll("X-Real-IP");
+        InetAddress realIp = realIpHeaders.size() == 1 ? literalAddress(realIpHeaders.getFirst()) : null;
+        return realIp == null ? socketIp : realIp.getHostAddress();
     }
 
     @Override
     public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
-        ConnectionRegistry connectionRegistry = ApplicationContext.getContainer().getBean(ConnectionRegistry.class);
-
         if (evt instanceof HandshakeComplete) {
+            ConnectionRegistry connectionRegistry = ApplicationContext.getContainer().getBean(ConnectionRegistry.class);
             HandshakeComplete serverHandshakeComplete = (HandshakeComplete) evt;
             //token 必须要url编码 否则会报invalid token
             //编解码移至Authenticator
             String token = serverHandshakeComplete.requestHeaders().get("sec-websocket-protocol");
-            String ip = this.getClientIp(serverHandshakeComplete, ctx.channel());
             try {
+                String ip = this.getClientIp(serverHandshakeComplete, ctx.channel());
                 LoginUser loginUser = ApplicationContext.getContainer().getBean(Authenticator.class).authenticate(new BearerToken(token, ip));
+                this.connection = new NettyWebsocketConnection(ctx.channel(), loginUser);
+                ClientConnection old = connectionRegistry.register(this.connection);
+                if (old != null) {
+                    old.closeConnection();
+                }
                 Result<LoginUser> result = Result.success(loginUser, BIND);
                 String userInfo = JSON.toJSONString(result);
                 ctx.channel().writeAndFlush(new TextWebSocketFrame(userInfo));
-                connectionRegistry.registerConnection(new NettyWebsocketConnection(ctx.channel(), loginUser));
             } catch (Exception e) {
                 log.error("authenticate error", e);
                 Result result = null;
@@ -133,20 +191,23 @@ public class WebSocketServerProtocolSupportHandshake extends WebSocketServerProt
             return;
         }
         if (evt instanceof IdleStateEvent) {
-            LoginUser loginUser = ctx.channel().attr(NettyWebsocketConnection.LOGIN_USER).get();
-            connectionRegistry.removeConnection(loginUser);
+            ctx.close();
         }
         super.userEventTriggered(ctx, evt);
     }
 
     @Override
-    protected void decode(ChannelHandlerContext ctx, WebSocketFrame frame, List<Object> out)
-            throws Exception {
-        ConnectionRegistry connectionRegistry = ApplicationContext.getContainer().getBean(ConnectionRegistry.class);
-        if (frame instanceof CloseWebSocketFrame) {
-            LoginUser loginUser = ctx.channel().attr(NettyWebsocketConnection.LOGIN_USER).get();
-            connectionRegistry.removeConnection(loginUser);
+    public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+        try {
+            if (this.connection != null) {
+                ConnectionRegistry registry = ApplicationContext.getContainer().getBean(ConnectionRegistry.class);
+                LoginUser user = this.connection.loginUser();
+                // channelInactive 触发时底层连接已断开，这里调用 registry 是为了清理 Map 中的记录。
+                // 仅在记录仍指向当前连接时移除，避免旧连接的回调误删新连接。
+                registry.removeConnection(user, this.connection);
+            }
+        } finally {
+            super.channelInactive(ctx);
         }
-        super.decode(ctx, frame, out);
     }
 }

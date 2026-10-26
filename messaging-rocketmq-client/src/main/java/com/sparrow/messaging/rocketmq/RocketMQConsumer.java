@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package com.sparrow.rocketmq.impl;
+package com.sparrow.messaging.rocketmq;
 
 import com.sparrow.container.Container;
 import com.sparrow.container.ContainerAware;
@@ -157,13 +157,31 @@ public class RocketMQConsumer implements ContainerAware {
     private volatile MQPushConsumer consumer;
 
     public synchronized void start() {
+        if (this.consumer != null) {
+            return;
+        }
+        this.consumer = startConsumer(this.batchSize, this.pullSize);
+    }
+
+    private MQPushConsumer startConsumer(int batchSize, int pullSize) {
+        MQPushConsumer candidate = null;
         try {
-            consumer = createConsumer(this.batchSize, this.pullSize);
-            log.info("begin start ROCKET MQ client, group={}, nameServerAddr {}, topic={},config={}", groupName, nameServerAddress, topicConfig, consumer);
-            consumer.start();
-        } catch (Exception e) {
-            log.error("start mq " + this.getClass().getName() + " failed：", e);
-            throw new RuntimeException("failed start ROCKET MQ client, Exception: ", e);
+            candidate = createConsumer(batchSize, pullSize);
+            candidate.start();
+            return candidate;
+        } catch (Exception failure) {
+            cleanupFailedConsumer(candidate, failure);
+            throw new IllegalStateException("Failed to start RocketMQ consumer", failure);
+        }
+    }
+
+    private void cleanupFailedConsumer(MQPushConsumer candidate, Throwable failure) {
+        if (candidate != null) {
+            try {
+                candidate.shutdown();
+            } catch (Exception cleanupFailure) {
+                failure.addSuppressed(cleanupFailure);
+            }
         }
     }
 
@@ -172,13 +190,17 @@ public class RocketMQConsumer implements ContainerAware {
     }
 
     private void setConsumeThread(DefaultMQPushConsumer consumer) {
-        consumer.setConsumeThreadMax(this.getThreadCount());
-        consumer.setConsumeThreadMin(this.getThreadCount());
+        int threads = this.getThreadCount();
+        if (threads <= 0) {
+            throw new IllegalArgumentException("Consumer thread count must be positive");
+        }
+        consumer.setConsumeThreadMax(threads);
+        consumer.setConsumeThreadMin(threads);
     }
 
     protected MQPushConsumer createConsumer(Integer batchSize, Integer pullSize) {
+        DefaultMQPushConsumer defaultMQPushConsumer = new DefaultMQPushConsumer(groupName);
         try {
-            DefaultMQPushConsumer defaultMQPushConsumer = new DefaultMQPushConsumer(groupName);
             MessageModel messageModel = MessageModel.CLUSTERING;
             if (this.messageModel != null) {
                 messageModel = MessageModel.valueOf(this.messageModel);
@@ -194,12 +216,8 @@ public class RocketMQConsumer implements ContainerAware {
                 defaultMQPushConsumer.setConsumeMessageBatchMaxSize(batchSize);
             }
             if (pullSize != null && pullSize > 0) {
-                System.err.println("pull size:" + pullSize);
                 defaultMQPushConsumer.setPullBatchSize(pullSize);
             }
-            //消费一批消息，最大数。因为一批消息如果有一个失败，都会失败，所以这里设置为1
-            //defaultMQPushConsumer.setConsumeMessageBatchMaxSize(1);
-            //setConsumeThread(defaultMQPushConsumer);
             //订阅多个topic
             for (TopicTagPair topicTagPair : this.getTopicConfigList()) {
                 defaultMQPushConsumer.subscribe(topicTagPair.getTopic(), new StringJoiner(Symbol.VERTICAL_LINE, topicTagPair.getTags()).join());
@@ -207,25 +225,44 @@ public class RocketMQConsumer implements ContainerAware {
             defaultMQPushConsumer.setInstanceName(getInstanceName() + Symbol.UNDERLINE + groupName);
             defaultMQPushConsumer.registerMessageListener(messageListener);
             defaultMQPushConsumer.setPullInterval(this.pullInterval);
-            defaultMQPushConsumer.setConsumeThreadMin(this.threadCount);
+            setConsumeThread(defaultMQPushConsumer);
             log.info("finished rocket mq client start!");
             return defaultMQPushConsumer;
         } catch (Exception e) {
-            log.error("start " + this.getClass().getName() + " failed：", e);
-            throw new RuntimeException("failed start rocket mq client, Exception : ", e);
+            cleanupFailedConsumer(defaultMQPushConsumer, e);
+            throw new IllegalStateException("Failed to configure RocketMQ consumer", e);
         }
     }
 
-    public void setPullSize(int batchSize, int pullSize) {
+    public synchronized void setPullSize(int batchSize, int pullSize) {
+        if (this.consumer == null) {
+            this.batchSize = batchSize;
+            this.pullSize = pullSize;
+            return;
+        }
+        int previousBatchSize = this.batchSize;
+        int previousPullSize = this.pullSize;
+        // 关闭失败时仍保留原引用，避免在状态未知时创建第二个实例。
         this.consumer.shutdown();
-        this.consumer = this.createConsumer(batchSize, pullSize);
+        this.consumer = null;
+        try {
+            this.consumer = startConsumer(batchSize, pullSize);
+            this.batchSize = batchSize;
+            this.pullSize = pullSize;
+        } catch (RuntimeException adjustmentFailure) {
+            try {
+                this.consumer = startConsumer(previousBatchSize, previousPullSize);
+            } catch (RuntimeException recoveryFailure) {
+                adjustmentFailure.addSuppressed(recoveryFailure);
+            }
+            throw adjustmentFailure;
+        }
     }
 
     public synchronized void shutdown() {
-        try {
-            consumer.shutdown();
-        } catch (Exception e) {
-            log.error("shutdown rocket mq fail", e);
+        if (this.consumer != null) {
+            this.consumer.shutdown();
+            this.consumer = null;
         }
     }
 

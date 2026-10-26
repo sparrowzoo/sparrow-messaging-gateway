@@ -12,6 +12,10 @@
     <artifactId>messaging-domain</artifactId>
     <dependencies>
         <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+        </dependency>
+        <dependency>
             <groupId>com.sparrowzoo.messaging</groupId>
             <artifactId>messaging-protocol</artifactId>
         </dependency>
@@ -22,6 +26,11 @@
         <dependency>
             <groupId>com.sparrowzoo</groupId>
             <artifactId>authenticator-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 </project>

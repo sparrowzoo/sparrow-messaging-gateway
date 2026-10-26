@@ -20,7 +20,7 @@ package com.sparrow.rocketmq.impl;
 import com.sparrow.core.spi.JsonFactory;
 import com.sparrow.messaging.protocol.Event;
 import com.sparrow.pub.sub.MQClient;
-import com.sparrow.rocketmq.MessageConverter;
+import com.sparrow.messaging.rocketmq.MessageConverter;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.common.message.Message;

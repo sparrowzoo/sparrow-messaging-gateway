@@ -23,10 +23,9 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * 会话不应该与用户相关
- * 方便session查重
- * <p>
- * 方便1对1 聊天的使用
+ * 同一对单聊参与者，无论发送方向如何，都使用同一个会话 key。
+ * 沿用既有 key 格式：类别各占一位，较大用户 ID 的字符长度占两位。
+ * 因此单聊类别限 0–9，双方 ID 的 String.length() 限 1–99；超出时明确拒绝，不截断。
  */
 @Data
 @NoArgsConstructor
@@ -65,12 +64,15 @@ public class ChatSession {
     }
 
     private String generateId(ChatUser sender, ChatUser receiver) {
-        if (sender == null || receiver == null) {
-            return "";
-        }
+        validateOneToOneUser(sender);
+        validateOneToOneUser(receiver);
         ChatUser bigUser = sender;
         ChatUser smallUser = receiver;
-        if (sender.getId().compareTo(receiver.getId()) <= 0) {
+        int comparison = sender.getId().compareTo(receiver.getId());
+        if (comparison == 0) {
+            comparison = sender.getSessionCategory().compareTo(receiver.getSessionCategory());
+        }
+        if (comparison <= 0) {
             bigUser = receiver;
             smallUser = sender;
         }
@@ -80,6 +82,15 @@ public class ChatSession {
             len = "0" + len;
         }
         return bigUser.getSessionCategory() + "" + smallUser.getSessionCategory() + "" + len + "" + bigUser.getId() + smallUser.getId();
+    }
+
+    static void validateOneToOneUser(ChatUser user) {
+        if (user == null || user.getId() == null || user.getId().isEmpty() || user.getId().length() > 99) {
+            throw new IllegalArgumentException("Single-chat user ID must contain 1–99 characters");
+        }
+        if (user.getCategory() == null || user.getCategory() < 0 || user.getCategory() > 9) {
+            throw new IllegalArgumentException("Single-chat user category must be between 0 and 9");
+        }
     }
 
     public static ChatSession parse(String sessionKey) {
@@ -96,31 +107,50 @@ public class ChatSession {
             return null;
         }
 
+        if (this.id == null || this.id.length() < 6) {
+            throw new IllegalArgumentException("Invalid single-chat session key");
+        }
+        for (int i = 0; i < 4; i++) {
+            if (this.id.charAt(i) < '0' || this.id.charAt(i) > '9') {
+                throw new IllegalArgumentException("Single-chat category and ID length must be decimal digits");
+            }
+        }
         String bigUserCategory = this.id.substring(0, 1);
         String smallUserCategory = this.id.substring(1, 2);
         int bitUserLength = Integer.parseInt(this.id.substring(2, 4));
+        if (bitUserLength == 0 || 4 + bitUserLength >= this.id.length()) {
+            throw new IllegalArgumentException("Invalid single-chat user ID length");
+        }
         String bigUserId = this.id.substring(4, 4 + bitUserLength);
         String smallUserId = this.id.substring(4 + bitUserLength);
 
         ChatUser bigUser = ChatUser.stringUserId(bigUserId, Integer.valueOf(bigUserCategory));
         ChatUser smallUser = ChatUser.stringUserId(smallUserId, Integer.valueOf(smallUserCategory));
+        validateOneToOneUser(bigUser);
+        validateOneToOneUser(smallUser);
         return new Pair<>(bigUser, smallUser);
     }
 
     public ChatUser getOppositeUser(ChatUser currentUser) {
+        if (!this.isOne2One() || currentUser == null) {
+            return null;
+        }
         Pair<ChatUser, ChatUser> members = this.get1To1Members();
         if (members.getFirst().equals(currentUser)) {
             return members.getSecond();
         }
-        return members.getFirst();
+        if (members.getSecond().equals(currentUser)) {
+            return members.getFirst();
+        }
+        return null;
     }
 
     public boolean isOne2OneMember(ChatUser user) {
-        if (!this.isOne2One()) {
+        if (!this.isOne2One() || user == null) {
             return false;
         }
-        ChatUser oppositeUser = this.getOppositeUser(user);
-        return oppositeUser != null;
+        Pair<ChatUser, ChatUser> members = this.get1To1Members();
+        return members.getFirst().equals(user) || members.getSecond().equals(user);
     }
 
     public boolean isVisitor() {

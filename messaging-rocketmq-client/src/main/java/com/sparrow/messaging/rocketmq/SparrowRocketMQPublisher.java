@@ -24,7 +24,7 @@ import com.sparrow.messaging.protocol.Event;
 import com.sparrow.messaging.protocol.api.Publisher;
 import com.sparrow.pub.sub.MQClient;
 import com.sparrow.pub.sub.MQMessageSendException;
-import com.sparrow.rocketmq.MessageConverter;
+import com.sparrow.messaging.rocketmq.MessageConverter;
 import org.apache.rocketmq.client.exception.MQClientException;
 import org.apache.rocketmq.client.producer.DefaultMQProducer;
 import org.apache.rocketmq.client.producer.MQProducer;
@@ -105,39 +105,34 @@ public class SparrowRocketMQPublisher implements Publisher, ContainerAware {
 
     @Override
     public void publish(Event event) {
+        Integer maxAttempts = this.retryTimesWhenSendAsyncFailed;
+        if (maxAttempts == null || maxAttempts <= 0) {
+            throw new IllegalArgumentException("Send attempt count must be positive");
+        }
         Message msg = this.messageConverter.createMessage(topic, tag, event);
         String key = UUID.randomUUID().toString();
         msg.setKeys(Collections.singletonList(key));
         logger.info("event {},msgKey {}", JsonFactory.getProvider().toString(event), key);
-        SendResult sendResult = null;
-        int retryTimes = 0;
-        while (retryTimes < retryTimesWhenSendAsyncFailed) {
-            retryTimes++;
-            if (retryTimes > 2) {
-                logger.warn("event {} retry times {}", event, retryTimes);
-            }
+        // 限制本类调用 send 的次数；SDK 内部可能还有自己的重试。
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
-                sendResult = producer.send(msg);
-                /**
-                 * , new MessageQueueSelector() {
-                 *                     @Override
-                 *                     public MessageQueue select(List<MessageQueue> list, Message message, Object o) {
-                 *                         list.get(0).getQueueId()
-                 *                         return null;
-                 *                     }
-                 *                 },event
-                 */
-                if (!sendResult.getSendStatus().equals(SendStatus.SEND_OK)) {
+                SendResult sendResult = producer.send(msg);
+                if (sendResult.getSendStatus() != SendStatus.SEND_OK) {
                     throw new MQMessageSendException(sendResult.toString());
                 }
-                this.after(event, key);
-                break;
-            } catch (Throwable e) {
-                logger.warn(e.getClass().getSimpleName() + " retry", e);
-                if (retryTimes == retryTimesWhenSendAsyncFailed - 1) {
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new MQMessageSendException("Send interrupted", e);
+            } catch (Exception e) {
+                logger.warn("Send attempt {} failed, msgKey {}", attempt, key, e);
+                if (attempt == maxAttempts) {
                     throw new MQMessageSendException("client exception", e);
                 }
+                continue;
             }
+            // 消息已发送成功；回调失败只向上报告，不能因此重发。
+            this.after(event, key);
+            return;
         }
     }
 

@@ -22,10 +22,10 @@ import com.sparrow.messaging.protocol.TypedEvent;
 
 public interface EventTypedHandlerMappingContainer {
 
-    void put(TypedSubHandler handler);
+    void put(TypedSubscriber handler);
 
-    TypedSubHandler getEventHandler(TypedEvent type);
+    TypedSubscriber getEventHandler(TypedEvent type);
 
-    TypedSubHandler getMessageHandler(TypedEvent type);
+    TypedSubscriber getMessageHandler(TypedEvent type);
 
 }

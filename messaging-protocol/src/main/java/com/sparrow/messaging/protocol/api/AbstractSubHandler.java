@@ -21,9 +21,9 @@ package com.sparrow.messaging.protocol.api;
 import com.sparrow.messaging.protocol.Event;
 import jakarta.inject.Inject;
 
-public abstract class AbstractSubHandler<T extends Event> implements SubHandler<T> {
+public abstract class AbstractSubHandler<T extends Event> implements Subscriber<T> {
     @Inject
-    private EventHandlerMappingContainer queueHandlerMappingContainer;
+    protected EventHandlerMappingContainer queueHandlerMappingContainer;
 
     public void aware() {
         queueHandlerMappingContainer.put(this);

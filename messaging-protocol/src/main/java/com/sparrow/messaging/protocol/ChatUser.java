@@ -22,22 +22,29 @@ import com.sparrow.protocol.constant.magic.Symbol;
 import lombok.Data;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Objects;
 
 @Data
 public class ChatUser {
 
 
     public static ChatUser parse(String key) {
-        String[] parts = key.split(Symbol.UNDERLINE);
-        if (parts.length != 2) {
+        if (key == null) {
             return null;
         }
-        String id = parts[0];
-        Integer role = Integer.parseInt(parts[1]);
+        int separator = key.lastIndexOf(Symbol.UNDERLINE);
+        if (separator <= 0 || separator == key.length() - 1) {
+            return null;
+        }
+        String id = key.substring(0, separator);
+        Integer role = Integer.parseInt(key.substring(separator + 1));
         return new ChatUser(id, role);
     }
 
     public static ChatUser longUserId(Long id, Integer role) {
+        if (id == null) {
+            throw new IllegalArgumentException("User ID must not be null");
+        }
         return new ChatUser(id.toString(), role);
     }
 
@@ -61,22 +68,34 @@ public class ChatUser {
     }
 
     public Boolean isVisitor() {
-        return this.category == LoginUser.CATEGORY_VISITOR;
+        return Objects.equals(this.category, LoginUser.CATEGORY_VISITOR);
     }
 
     public Boolean isAI() {
-        return this.category == LoginUser.CATEGORY_AI;
+        return Objects.equals(this.category, LoginUser.CATEGORY_AI);
     }
 
     public String key() {
+        requireIdentity();
         return this.id + Symbol.UNDERLINE + this.getSessionCategory();
     }
 
     public boolean equals(ChatUser chatUser) {
-        if (chatUser == null) {
-            return false;
+        return equals((Object) chatUser);
+    }
+
+    @Override
+    public boolean equals(Object other) {
+        if (this == other) {
+            return true;
         }
-        return this.id.equals(chatUser.id) && this.category.equals(chatUser.category);
+        return other instanceof ChatUser user && Objects.equals(this.id, user.id)
+                && Objects.equals(this.category, user.category);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(id, category);
     }
 
 
@@ -90,12 +109,25 @@ public class ChatUser {
      * @return
      */
     public byte[] toBytes() {
+        requireIdentity();
+        if (this.id.length() > 255 || this.category < 0 || this.category > 255) {
+            throw new IllegalArgumentException("User ID must be 1–255 UTF-8 bytes and category must be between 0 and 255");
+        }
         byte[] idBytes = this.id.getBytes(StandardCharsets.UTF_8);
+        if (idBytes.length > 255) {
+            throw new IllegalArgumentException("User ID must not exceed 255 UTF-8 bytes");
+        }
         int capacity = 1 + idBytes.length + 1;
         byte[] byteBuf = new byte[capacity];
         byteBuf[0] = (byte) idBytes.length;
         System.arraycopy(idBytes, 0, byteBuf, 1, idBytes.length);
         byteBuf[capacity - 1] = this.category.byteValue();
         return byteBuf;
+    }
+
+    private void requireIdentity() {
+        if (this.id == null || this.id.isEmpty() || this.category == null) {
+            throw new IllegalArgumentException("User ID and category are required");
+        }
     }
 }

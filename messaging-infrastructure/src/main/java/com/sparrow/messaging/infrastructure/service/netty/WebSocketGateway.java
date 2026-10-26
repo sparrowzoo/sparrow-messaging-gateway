@@ -35,13 +35,14 @@ package com.sparrow.messaging.infrastructure.service.netty;
 import com.sparrow.core.spi.ApplicationContext;
 import com.sparrow.messaging.domain.service.ClientConnection;
 import com.sparrow.messaging.domain.service.ConnectionRegistry;
-import com.sparrow.messaging.domain.service.PublishStrategy;
-import com.sparrow.messaging.domain.service.RoutableTypedHandlerMappingContainer;
+import com.sparrow.messaging.domain.service.pub.sub.typed.TypedPublishStrategy;
+import com.sparrow.messaging.domain.service.pub.sub.typed.mapping.TypedPubSubMappingContainer;
 import com.sparrow.messaging.protocol.ChatUser;
 import com.sparrow.messaging.protocol.EventType;
 import com.sparrow.messaging.protocol.Protocol;
 import com.sparrow.protocol.LoginUser;
 import io.netty.buffer.ByteBuf;
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.codec.http.websocketx.BinaryWebSocketFrame;
@@ -49,6 +50,7 @@ import io.netty.handler.codec.http.websocketx.WebSocketFrame;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
+@ChannelHandler.Sharable
 public class WebSocketGateway extends SimpleChannelInboundHandler<WebSocketFrame> {
 
     /**
@@ -62,24 +64,43 @@ public class WebSocketGateway extends SimpleChannelInboundHandler<WebSocketFrame
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, WebSocketFrame frame) throws Exception {
         try {
-            PublishStrategy publishStrategy = ApplicationContext.getContainer().getBean(PublishStrategy.class);
-            RoutableTypedHandlerMappingContainer eventContainer = ApplicationContext.getContainer().getBean(RoutableTypedHandlerMappingContainer.class);
+            TypedPubSubMappingContainer eventContainer = ApplicationContext.getContainer().getBean(TypedPubSubMappingContainer.class);
             ConnectionRegistry connectionRegistry = ApplicationContext.getContainer().getBean(ConnectionRegistry.class);
             LoginUser loginUser = ctx.channel().attr(NettyWebsocketConnection.LOGIN_USER).get();
+            if (loginUser == null) {
+                ctx.close();
+                return;
+            }
             ClientConnection clientConnection = connectionRegistry.findConnection(loginUser);
+            if (clientConnection == null || clientConnection != ctx.channel().attr(NettyWebsocketConnection.CONNECTION).get()) {
+                ctx.close();
+                return;
+            }
             clientConnection.refreshAccessTime();
             if (frame instanceof BinaryWebSocketFrame msg) {
                 ByteBuf content = msg.content();
                 Protocol protocol = new Protocol(content.nioBuffer());
                 protocol.setSender(ChatUser.longUserId(loginUser.getUserId(), loginUser.getCategory()));
+                protocol.setDevice(loginUser.getDeviceType());
                 EventType eventType = protocol.getEventType();
                 if (eventType.publishable()) {
+                    TypedPublishStrategy publishStrategy = ApplicationContext.getContainer().getBean(TypedPublishStrategy.class);
                     publishStrategy.publish(protocol);
                 }
-                eventContainer.getEventHandler(protocol).handle(protocol);
+                var eventHandler = eventContainer.getEventHandler(protocol);
+                if (eventHandler == null) {
+                    log.warn("Unsupported event type: {}", eventType);
+                    ctx.close();
+                    return;
+                }
+                eventHandler.subscribe(protocol);
             }
         } catch (Throwable e) {
-            throw new RuntimeException(e);
+            ctx.close();
+            if (e instanceof Error error) {
+                throw error;
+            }
+            log.warn("WebSocket message rejected or business handling failed", e);
         }
     }
 }

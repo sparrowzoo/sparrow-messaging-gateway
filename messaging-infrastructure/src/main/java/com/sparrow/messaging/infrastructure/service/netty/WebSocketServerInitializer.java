@@ -38,18 +38,23 @@ import io.netty.channel.socket.SocketChannel;
 import io.netty.handler.codec.http.HttpObjectAggregator;
 import io.netty.handler.codec.http.HttpServerCodec;
 import io.netty.handler.codec.http.websocketx.WebSocketFrameAggregator;
-import io.netty.handler.codec.http.websocketx.extensions.compression.WebSocketServerCompressionHandler;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.timeout.IdleStateHandler;
+
+import java.net.InetAddress;
+import java.util.Set;
 
 public class WebSocketServerInitializer extends ChannelInitializer<SocketChannel> {
 
     private static final String WEBSOCKET_PATH = "/websocket";
 
     private final SslContext sslCtx;
+    private final Set<InetAddress> trustedProxies;
 
     public WebSocketServerInitializer(SslContext sslCtx) {
         this.sslCtx = sslCtx;
+        this.trustedProxies = WebSocketServerProtocolSupportHandshake.parseTrustedProxies(
+                System.getProperty("sparrow.messaging.websocket.trusted-proxies", ""));
     }
 
     @Override
@@ -59,30 +64,14 @@ public class WebSocketServerInitializer extends ChannelInitializer<SocketChannel
             pipeline.addLast(sslCtx.newHandler(ch.alloc()));
         }
         pipeline.addLast(new HttpServerCodec());
-        //OR
-        //pipeline.addLast("decoder", new HttpRequestDecoder())
-        //pipeline.addLast("encoder", new HttpResponseEncoder())
-
-        // ChunkedWriteHandler：向客户端发送大文件 如 html5文件
-        //pipeline.addLast("http-chunked", new ChunkedWriteHandler());
-        pipeline.addLast(new WebSocketServerCompressionHandler());
+        // 10秒无读取时关闭；检测器必须位于关闭处理器之前。
+        pipeline.addLast(new IdleStateHandler(10, 0, 0));
         pipeline.addLast(new HttpObjectAggregator(1024));
-        pipeline.addLast(new WebSocketFrameAggregator(65536 * 10));
-
-        // 升级http到websocket握手 处理ping、pong、close
-        //handlerAdded
-        //ctx.pipeline().addBefore(ctx.name(), WebSocketServerProtocolHandshakeHandler.class.getName(), new WebSocketServerProtocolHandshakeHandler(this.websocketPath, this.subprotocols, this.allowExtensions, this.maxFramePayloadLength, this.allowMaskMismatch, this.checkStartsWith));
-
-        //‌协议层限制‌
-        //在特定协议处理中限制数据帧大小（如WebSocket）：
-        //设置WebSocket帧最大长度为1MB
-        //WebSocketServerProtocolHandler
-        //new WebSocketServerProtocolHandler("/ws", "*", true, 1048576);  // 参数
-        pipeline.addLast(new WebSocketServerProtocolSupportHandshake(WEBSOCKET_PATH, 65536 * 10));
-        pipeline.addLast(new IdleStateHandler(10, 10, 10));
-        //握手有先后顺序
+        // 单帧与分片总量均限制为640 KiB；不启用压缩，避免解压放大。
+        pipeline.addLast(new WebSocketFrameAggregator(655360));
+        pipeline.addLast(new WebSocketServerProtocolSupportHandshake(WEBSOCKET_PATH, 655360, trustedProxies));
+        // 可选调试首页缺资源时返回404，应用消息由后续网关处理。
         pipeline.addLast(new WebSocketIndexPageHandler(WEBSOCKET_PATH));
-        //pipeline.addLast(new OutOfMemoryHandler());
         pipeline.addLast(new WebSocketGateway());
     }
 }

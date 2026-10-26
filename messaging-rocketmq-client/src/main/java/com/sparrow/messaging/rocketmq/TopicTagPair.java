@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package com.sparrow.rocketmq.impl;
+package com.sparrow.messaging.rocketmq;
 
 import java.util.List;
 

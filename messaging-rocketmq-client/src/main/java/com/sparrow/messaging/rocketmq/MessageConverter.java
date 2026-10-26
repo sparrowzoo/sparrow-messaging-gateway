@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package com.sparrow.rocketmq;
+package com.sparrow.messaging.rocketmq;
 
 import com.sparrow.messaging.protocol.Event;
 import org.apache.rocketmq.common.message.Message;

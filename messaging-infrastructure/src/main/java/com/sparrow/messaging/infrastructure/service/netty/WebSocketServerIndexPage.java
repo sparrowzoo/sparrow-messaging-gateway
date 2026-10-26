@@ -35,10 +35,13 @@ package com.sparrow.messaging.infrastructure.service.netty;
 import com.sparrow.utility.FileUtility;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import io.netty.channel.ChannelHandler;
 import io.netty.util.CharsetUtil;
+
 import java.io.FileNotFoundException;
 import java.io.InputStream;
 
+@ChannelHandler.Sharable
 /**
  * Generates the demo HTML page which is served at http://localhost:8080/
  */
@@ -48,6 +51,9 @@ public final class WebSocketServerIndexPage {
 
     public static ByteBuf getContent(String webSocketLocation) throws FileNotFoundException {
         InputStream stream = WebSocketServerIndexPage.class.getResourceAsStream("/index.html");
+        if (stream == null) {
+            throw new FileNotFoundException("Classpath resource /index.html not found");
+        }
         String indexContent = FileUtility.getInstance().readFileContent(stream, "utf-8");
         return Unpooled.copiedBuffer(indexContent, CharsetUtil.US_ASCII);
     }

@@ -35,6 +35,17 @@
     <version>1.0.0-SNAPSHOT</version>
     <dependencies>
         <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.sparrowzoo</groupId>
+            <artifactId>sparrow-json</artifactId>
+            <version>${sparrow.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>com.sparrowzoo.messaging</groupId>
             <artifactId>messaging-protocol</artifactId>
             <version>${project.version}</version>
@@ -54,5 +65,17 @@
             <artifactId>rocketmq-client</artifactId>
         </dependency>
     </dependencies>
-
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <systemPropertyVariables>
+                        <rocketmq.log.root>${project.build.directory}/rocketmqlogs</rocketmq.log.root>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 </project>

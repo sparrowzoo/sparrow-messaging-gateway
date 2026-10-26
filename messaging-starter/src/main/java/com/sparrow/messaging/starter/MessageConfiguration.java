@@ -18,34 +18,46 @@ limitations under the License.
 package com.sparrow.messaging.starter;
 
 import com.sparrow.messaging.domain.service.*;
-import com.sparrow.messaging.infrastructure.service.spring.event.MessageEventHandler;
-import com.sparrow.messaging.infrastructure.service.spring.event.PingHandler;
-import com.sparrow.messaging.infrastructure.service.spring.event.UserStatusEventHandler;
+import com.sparrow.messaging.domain.service.pub.sub.RoutingKeyPublisherMapping;
+import com.sparrow.messaging.infrastructure.service.spring.LocalConfigRoutingKeyPublisherMapping;
+import com.sparrow.messaging.domain.service.pub.sub.mapping.PubSubMappingContainer;
+import com.sparrow.messaging.domain.service.pub.sub.typed.mapping.TypedPubSubMappingContainer;
+import com.sparrow.messaging.domain.service.pub.sub.DefaultPublisher;
+import com.sparrow.messaging.domain.service.pub.sub.typed.DefaultTypedPublisher;
+import com.sparrow.messaging.domain.service.pub.sub.typed.TypedPublishStrategy;
+import com.sparrow.messaging.infrastructure.service.spring.event.MessageEventSubscriber;
+import com.sparrow.messaging.infrastructure.service.spring.event.PingSubscriber;
+import com.sparrow.messaging.infrastructure.service.spring.event.UserStatusEventSubscriber;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 
 @Configuration(proxyBeanMethods = false)
-@Import({DefaultPublisher.class, RoutablePublisher.class, PingHandler.class,
-            MessageEventHandler.class, UserStatusEventHandler.class})
+@Import({DefaultPublisher.class, DefaultTypedPublisher.class, PingSubscriber.class,
+            MessageEventSubscriber.class, UserStatusEventSubscriber.class})
 public class MessageConfiguration {
+    @Bean
+    public RoutingKeyPublisherMapping routingKeyPublisherMapping() {
+        return new LocalConfigRoutingKeyPublisherMapping();
+    }
+
     @Bean
     public ConnectionRegistry connectionRegistry() {
         return new MultiDeviceConnectionRegistry();
     }
 
     @Bean
-    public DefaultQueueHandlerMappingContainer defaultQueueHandlerMappingContainer() {
-        return new DefaultQueueHandlerMappingContainer();
+    public PubSubMappingContainer defaultQueueHandlerMappingContainer() {
+        return new PubSubMappingContainer();
     }
 
     @Bean
-    public RoutableTypedHandlerMappingContainer routableTypedHandlerMappingContainer() {
-        return new RoutableTypedHandlerMappingContainer();
+    public TypedPubSubMappingContainer routableTypedHandlerMappingContainer() {
+        return new TypedPubSubMappingContainer();
     }
 
     @Bean
-    public PublishStrategy publishStrategy() {
-        return new PublishStrategy();
+    public TypedPublishStrategy publishStrategy() {
+        return new TypedPublishStrategy();
     }
 }

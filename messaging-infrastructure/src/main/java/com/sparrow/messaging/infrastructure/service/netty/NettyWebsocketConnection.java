@@ -41,6 +41,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class NettyWebsocketConnection implements ClientConnection {
     private static final int CLOSE_TIMEOUT_SECONDS = 5;
     public static final AttributeKey<LoginUser> LOGIN_USER = AttributeKey.newInstance("loginUser");
+    public static final AttributeKey<ClientConnection> CONNECTION = AttributeKey.valueOf("messaging.connection");
     public static final AttributeKey<Long> CREATE_TIME = AttributeKey.newInstance("createTime");
 
     public static final AttributeKey<Long> LAST_ACCESS_TIME = AttributeKey.newInstance("lastActiveTime");
@@ -51,7 +52,10 @@ public class NettyWebsocketConnection implements ClientConnection {
     public NettyWebsocketConnection(Channel channel, LoginUser loginUser) {
         this.channel = Objects.requireNonNull(channel, "channel");
         channel.attr(LOGIN_USER).set(loginUser);
-        channel.attr(CREATE_TIME).set(System.currentTimeMillis());
+        channel.attr(CONNECTION).set(this);
+        long now = System.currentTimeMillis();
+        channel.attr(CREATE_TIME).set(now);
+        channel.attr(LAST_ACCESS_TIME).set(now);
         this.loginUser = loginUser;
     }
 

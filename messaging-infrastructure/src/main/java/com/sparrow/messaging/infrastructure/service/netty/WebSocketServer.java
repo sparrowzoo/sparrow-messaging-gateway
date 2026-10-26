@@ -48,39 +48,18 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * A HTTP server which serves Web Socket requests at:
- * <p>
- * http://localhost:8080/websocket
- * <p>
- * Open your browser at <a href="http://localhost:8080/">http://localhost:8080/</a>, then the demo page will be loaded
- * and a Web Socket connection will be made automatically.
- * <p>
- * This server illustrates support for the different web socket specification versions and will work with:
- *
- * <ul>
- * <li>Safari 5+ (draft-ietf-hybi-thewebsocketprotocol-00)
- * <li>Chrome 6-13 (draft-ietf-hybi-thewebsocketprotocol-00)
- * <li>Chrome 14+ (draft-ietf-hybi-thewebsocketprotocol-10)
- * <li>Chrome 16+ (RFC 6455 aka draft-ietf-hybi-thewebsocketprotocol-17)
- * <li>Firefox 7+ (draft-ietf-hybi-thewebsocketprotocol-10)
- * <li>Firefox 11+ (RFC 6455 aka draft-ietf-hybi-thewebsocketprotocol-17)
- * </ul>
+ * Netty WebSocket 服务入口，业务项目负责认证和消息组件的装配。
+ * host/port/ssl 使用系统属性；内置自签证书仅用于本地示例。
  */
 public final class WebSocketServer {
 
     private static final Logger log = LoggerFactory.getLogger(WebSocketServer.class);
 
     static final boolean SSL = System.getProperty("ssl") != null;
-    static final int PORT = Integer.parseInt(System.getProperty("port", SSL ? "8443" : "8080"));
 
     public static void start(String[] args) throws Exception {
-        /**
-         * @see NioEventLoopGroup
-         * @see java.nio.channels.spi.SelectorProvider
-         * for linux
-         */
-        //System.setProperty("java.nio.channels.spi.SelectorProvider","sun.nio.ch.PollSelectorProvider");
-        // Configure SSL.
+        int port = Integer.parseInt(System.getProperty("port", SSL ? "8443" : "8080"));
+        // 生产入口使用受信证书或可信代理终止 TLS；这里保留本地自签示例。
         final SslContext sslCtx;
         if (SSL) {
             SelfSignedCertificate ssc = new SelfSignedCertificate();
@@ -103,14 +82,13 @@ public final class WebSocketServer {
                     .handler(new LoggingHandler(LogLevel.INFO))//处理当前channel的handler
                     .childHandler(new WebSocketServerInitializer(sslCtx));//处理子channel的handler
 
-            //[id: 0x5c38d987, L:/0:0:0:0:0:0:0:0:8080]
-            Channel ch = b.bind(PORT).sync().channel();
-            log.info("Open your web browser and navigate to {}://127.0.0.1:{}/",
-                    SSL ? "https" : "http", PORT);
+            Channel ch = b.bind(System.getProperty("host", "0.0.0.0"), port).sync().channel();
+            log.info("WebSocket endpoint: {}://127.0.0.1:{}/websocket",
+                    SSL ? "wss" : "ws", port);
             ch.closeFuture().sync();
         } finally {
-            bossGroup.shutdownGracefully();
-            workerGroup.shutdownGracefully();
+            bossGroup.shutdownGracefully().syncUninterruptibly();
+            workerGroup.shutdownGracefully().syncUninterruptibly();
         }
     }
 }

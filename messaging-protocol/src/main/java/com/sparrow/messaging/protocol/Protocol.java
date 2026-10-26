@@ -44,6 +44,8 @@ import java.util.Objects;
  * eventType 决定报文结束于哪一段；PONG 等仅包含事件段的报文占一个字节。
  * 所有文本使用 UTF-8，多字节数值使用大端；长度和用户类别按无符号数处理。
  * messageType 用 short 保留完整的 16 位，业务上可使用 Short.toUnsignedInt 获取无符号值。
+ * 单聊为兼容既有会话 key，双方类别限 0–9，ID 的 String.length() 限 1–99；
+ * 同时仍受用户 ID 最多 255 个 UTF-8 字节的线上限制。群聊沿用原用户结构和 sessionKey 限制。
  * 调用方必须提供完整的一帧：WebSocket 分片需先聚合，TCP 字节流需在外层划分消息边界。
  *
  * <p>Netty 接入示例（仅调用方需要引入 Netty）：
@@ -217,12 +219,26 @@ public class Protocol implements TypedEvent {
         return ChatType.isOne2One(this.chatType);
     }
 
+    public void setChatType(ChatType chatType) {
+        this.chatType = chatType;
+        refreshOneToOneSession();
+    }
+
     public void setSender(ChatUser sender) {
         this.sender = sender;
-        if (!this.isOne2One()) {
-            return;
+        refreshOneToOneSession();
+    }
+
+    public void setReceiver(ChatUser receiver) {
+        this.receiver = receiver;
+        refreshOneToOneSession();
+    }
+
+    private void refreshOneToOneSession() {
+        if (this.isOne2One()) {
+            this.chatSession = this.sender == null || this.receiver == null ? null
+                    : ChatSession.create1To1Session(this.sender, this.receiver);
         }
-        this.chatSession = ChatSession.create1To1Session(this.sender, this.receiver);
     }
 
     /**
@@ -264,6 +280,12 @@ public class Protocol implements TypedEvent {
             return ByteBuffer.wrap(result.toByteArray());
         }
 
+        if (this.clientSendTime == null) {
+            throw new IllegalArgumentException("clientSendTime is required for the time segment");
+        }
+        if (this.clientSendTime < 0 || (this.serverTime != null && this.serverTime < 0)) {
+            throw new IllegalArgumentException("clientSendTime and serverTime must not be negative");
+        }
         String timestamps = this.clientSendTime.toString();
         if (this.serverTime != null) {
             timestamps += "_" + this.serverTime;
@@ -277,6 +299,8 @@ public class Protocol implements TypedEvent {
 
         byte[] senderBytes = encodeUser(this.sender, "sender");
         if (this.isOne2One()) {
+            ChatSession.validateOneToOneUser(this.sender);
+            ChatSession.validateOneToOneUser(this.receiver);
             byte[] receiverBytes = encodeUser(this.receiver, "receiver");
             this.sessionLength = 0;
             result.writeBytes(senderBytes);
@@ -301,6 +325,9 @@ public class Protocol implements TypedEvent {
     private static byte[] encodeUser(ChatUser user, String field) {
         if (user == null || user.getId() == null || user.getId().isEmpty()) {
             throw new IllegalArgumentException(field + " must have a non-empty ID");
+        }
+        if (user.getId().length() > 255) {
+            throw new IllegalArgumentException(field + ".id UTF-8 byte length must not exceed 255");
         }
         byte[] idBytes = user.getId().getBytes(StandardCharsets.UTF_8);
         if (idBytes.length > 255) {

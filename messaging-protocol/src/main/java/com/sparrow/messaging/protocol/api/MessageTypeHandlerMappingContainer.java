@@ -20,7 +20,7 @@ package com.sparrow.messaging.protocol.api;
 
 public interface MessageTypeHandlerMappingContainer {
 
-    void put(com.sparrow.messaging.protocol.api.SubHandler handler);
+    void put(Subscriber handler);
 
-    SubHandler get(String eventClazzName);
+    Subscriber get(String eventClazzName);
 }

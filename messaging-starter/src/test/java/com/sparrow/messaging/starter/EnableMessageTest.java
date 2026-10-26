@@ -18,26 +18,32 @@ limitations under the License.
 package com.sparrow.messaging.starter;
 
 import com.sparrow.messaging.domain.service.ConnectionRegistry;
-import com.sparrow.messaging.domain.service.PublishStrategy;
-import com.sparrow.messaging.domain.service.RoutablePublisher;
-import com.sparrow.messaging.domain.service.RoutableTypedHandlerMappingContainer;
-import com.sparrow.messaging.infrastructure.service.spring.AbstractSpringTypedHandler;
-import com.sparrow.messaging.infrastructure.service.spring.event.MessageEventHandler;
-import com.sparrow.messaging.infrastructure.service.spring.event.PingHandler;
-import com.sparrow.messaging.infrastructure.service.spring.event.UserStatusEventHandler;
+import com.sparrow.messaging.domain.service.pub.sub.RoutingKeyPublisherMapping;
+import com.sparrow.messaging.domain.service.pub.sub.typed.TypedPublishStrategy;
+import com.sparrow.messaging.domain.service.pub.sub.typed.DefaultTypedPublisher;
+import com.sparrow.messaging.domain.service.pub.sub.typed.mapping.TypedPubSubMappingContainer;
+import com.sparrow.messaging.infrastructure.service.spring.AbstractSpringTypedSubscriber;
+import com.sparrow.messaging.infrastructure.service.spring.event.MessageEventSubscriber;
+import com.sparrow.messaging.infrastructure.service.spring.event.PingSubscriber;
+import com.sparrow.messaging.infrastructure.service.spring.event.UserStatusEventSubscriber;
 import com.sparrow.messaging.protocol.EventType;
 import com.sparrow.messaging.protocol.MessageType;
 import com.sparrow.messaging.protocol.TypedEvent;
+import com.sparrow.messaging.protocol.api.TypedPublisher;
 import com.sparrow.messaging.protocol.enums.DefaultEventType;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Bean;
+import org.springframework.core.env.MapPropertySource;
+
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class EnableMessageTest {
     @Test
@@ -46,20 +52,47 @@ class EnableMessageTest {
             context.register(Application.class);
             context.refresh();
             assertNotNull(context.getBean(ConnectionRegistry.class));
-            assertNotNull(context.getBean(PublishStrategy.class));
-            assertNotNull(context.getBean(RoutablePublisher.class));
-            var mappings = context.getBean(RoutableTypedHandlerMappingContainer.class);
-            assertSame(context.getBean(PingHandler.class), mappings.getEventHandler(event(DefaultEventType.PING)));
-            assertInstanceOf(MessageEventHandler.class, mappings.getEventHandler(event(DefaultEventType.MESSAGE)));
-            assertInstanceOf(UserStatusEventHandler.class, mappings.getEventHandler(event(DefaultEventType.USER_STATUS)));
+            assertNotNull(context.getBean(TypedPublishStrategy.class));
+            assertNotNull(context.getBean(DefaultTypedPublisher.class));
+            var mappings = context.getBean(TypedPubSubMappingContainer.class);
+            assertSame(context.getBean(PingSubscriber.class), mappings.getEventHandler(event(DefaultEventType.PING)));
+            assertInstanceOf(MessageEventSubscriber.class, mappings.getEventHandler(event(DefaultEventType.MESSAGE)));
+            assertInstanceOf(UserStatusEventSubscriber.class, mappings.getEventHandler(event(DefaultEventType.USER_STATUS)));
         }
     }
 
     @Test
     void dispatchesMessagesToApplicationHandler() throws Throwable {
         try (var context = new AnnotationConfigApplicationContext(Application.class)) {
-            context.getBean(PublishStrategy.class).publish(event(DefaultEventType.MESSAGE));
+            context.getBean(TypedPublishStrategy.class).publish(event(DefaultEventType.MESSAGE));
             assertTrue(context.getBean(ApplicationHandler.class).handled);
+        }
+    }
+
+    @Test
+    void mapsRoutingKeyToPublisherBeanName() throws Throwable {
+        try (var context = new AnnotationConfigApplicationContext()) {
+            context.getEnvironment().getPropertySources().addFirst(new MapPropertySource("routing-test", Map.of(
+                    "sparrow.massaging.routing-publisher.mapping",
+                    "{'default':'defaultTypedPublisher','orders':'orderPublisher'}")));
+            context.register(Application.class);
+            context.refresh();
+            var mapping = context.getBean(RoutingKeyPublisherMapping.class);
+            assertEquals("defaultTypedPublisher", mapping.getPublisherKey("default"));
+            assertEquals("orderPublisher", mapping.getPublisherKey("orders"));
+            assertEquals("unmapped", mapping.getPublisherKey("unmapped"));
+            TypedEvent order = event(DefaultEventType.MESSAGE, "orders");
+            context.getBean(TypedPublishStrategy.class).publish(order);
+            assertSame(order, context.getBean(CapturingPublisher.class).lastEvent);
+            context.getBean(TypedPublishStrategy.class).publish(event(DefaultEventType.MESSAGE));
+            assertTrue(context.getBean(ApplicationHandler.class).handled);
+        }
+    }
+
+    @Test
+    void keepsRoutingKeyWhenMappingIsNotConfigured() {
+        try (var context = new AnnotationConfigApplicationContext(Application.class)) {
+            assertEquals("orders", context.getBean(RoutingKeyPublisherMapping.class).getPublisherKey("orders"));
         }
     }
 
@@ -67,16 +100,30 @@ class EnableMessageTest {
     @EnableMessage
     static class Application {
         @Bean
+        CapturingPublisher orderPublisher() {
+            return new CapturingPublisher();
+        }
+
+        @Bean
         ApplicationHandler applicationHandler() {
             return new ApplicationHandler();
         }
     }
 
-    static class ApplicationHandler extends AbstractSpringTypedHandler<TypedEvent> {
+    static class CapturingPublisher implements TypedPublisher {
+        private TypedEvent lastEvent;
+
+        @Override
+        public void publish(TypedEvent event) {
+            this.lastEvent = event;
+        }
+    }
+
+    static class ApplicationHandler extends AbstractSpringTypedSubscriber<TypedEvent> {
         private boolean handled;
 
         @Override
-        public void handle(TypedEvent event) {
+        public void subscribe(TypedEvent event) {
             this.handled = true;
         }
 
@@ -96,7 +143,16 @@ class EnableMessageTest {
     }
 
     private static TypedEvent event(EventType type) {
+        return event(type, "default");
+    }
+
+    private static TypedEvent event(EventType type, String routingKey) {
         return new TypedEvent() {
+            @Override
+            public String getRoutingKey() {
+                return routingKey;
+            }
+
             @Override
             public short getMessageType() {
                 return 0;

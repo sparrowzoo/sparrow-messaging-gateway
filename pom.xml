@@ -17,7 +17,7 @@
         <module>messaging-infrastructure</module>
         <module>messaging-adapter</module>
         <module>messaging-starter</module>
+        <module>messaging-example</module>
         <module>messaging-rocketmq-client</module>
-
     </modules>
 </project>
