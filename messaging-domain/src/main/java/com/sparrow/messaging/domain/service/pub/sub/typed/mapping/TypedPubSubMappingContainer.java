@@ -43,10 +43,17 @@ public class TypedPubSubMappingContainer implements EventTypedHandlerMappingCont
             throw new IllegalArgumentException("Subscriber must not be null");
         }
         EventType eventType = handler.getEventType();
+        if (eventType == null) {
+            throw new IllegalArgumentException("Subscriber must declare an event type");
+        }
         MessageType messageType = handler.getMessageType();
         if (messageType != null) {
-            this.messageTypeHandlerMapping.computeIfAbsent(eventType, _ -> new HashMap<>());
-            this.messageTypeHandlerMapping.get(eventType).put(messageType.getIdentity().shortValue(), handler);
+            Integer identity = messageType.getIdentity();
+            if (identity == null || identity < 0 || identity > 65535) {
+                throw new IllegalArgumentException("Message type identity must be between 0 and 65535");
+            }
+            this.messageTypeHandlerMapping.computeIfAbsent(eventType, ignored -> new HashMap<>())
+                .put(identity.shortValue(), handler);
             return;
         }
         this.eventTypeHandlerMapping.put(eventType, handler);

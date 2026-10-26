@@ -148,7 +148,7 @@ flowchart TD
 | 自定义发布目标 | 对应的 `Publisher` 或 `TypedPublisher` Bean，以及路由映射 | 按路由选择发布器及默认回退 |
 | WebSocket | 真实认证器、业务订阅者、Spring 与 Sparrow 容器绑定、服务器生命周期管理 | 握手与协议解析、连接目录、默认 IM 回执与心跳响应 |
 
-目前 typed 订阅表按两层索引查找：先找 `eventType`，再找 `messageType`。例如消息是 `IM + 101`，业务订阅者就必须同时返回 `DefaultEventType.IM` 和编号为 `101` 的 `MessageType`；只声明编号的订阅者会登记在空事件类型下面，无法匹配这个 IM 消息。
+目前 typed 订阅表按两层索引查找：先找 `eventType`，再找 `messageType`。例如消息是 `IM + 101`，业务订阅者就必须同时返回 `DefaultEventType.IM` 和编号为 `101` 的 `MessageType`；缺少事件类型的订阅者会在登记时明确报错；消息编号为空或超出 0–65535 时也会拒绝登记。
 
 业务订阅者需要同时声明两个值。例如接收 `IM + 101` 的订阅者，应在自己的 `AbstractSpringTypedSubscriber` 子类中实现：
 

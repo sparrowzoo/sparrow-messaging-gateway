@@ -17,6 +17,8 @@ limitations under the License.
 
 package com.sparrow.messaging.messaging.example.websocket;
 
+import com.sparrow.messaging.protocol.enums.DefaultEventType;
+import com.sparrow.messaging.protocol.EventType;
 import com.sparrow.messaging.infrastructure.service.spring.AbstractSpringTypedSubscriber;
 import com.sparrow.messaging.messaging.example.typed.ExampleMessageType;
 import com.sparrow.messaging.protocol.MessageType;
@@ -28,6 +30,11 @@ import java.util.concurrent.atomic.AtomicReference;
 @Component
 public class WebSocketMessageSubscriber extends AbstractSpringTypedSubscriber<Protocol> {
     private final AtomicReference<Protocol> lastMessage = new AtomicReference<>();
+
+    @Override
+    public EventType getEventType() {
+        return DefaultEventType.IM;
+    }
 
     @Override
     public MessageType getMessageType() {

@@ -149,6 +149,11 @@ class SubscriberProxyTest {
         }
 
         @Override
+        public EventType getEventType() {
+            return DefaultEventType.IM;
+        }
+
+        @Override
         public MessageType getMessageType() {
             return SampleMessageType.SAMPLE;
         }

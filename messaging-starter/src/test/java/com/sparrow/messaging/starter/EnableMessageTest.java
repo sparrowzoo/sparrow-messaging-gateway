@@ -123,6 +123,11 @@ class EnableMessageTest {
         private boolean handled;
 
         @Override
+        public EventType getEventType() {
+            return DefaultEventType.IM;
+        }
+
+        @Override
         public void subscribe(TypedEvent event) {
             this.handled = true;
         }

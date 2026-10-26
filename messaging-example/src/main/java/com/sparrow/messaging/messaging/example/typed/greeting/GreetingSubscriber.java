@@ -17,6 +17,8 @@ limitations under the License.
 
 package com.sparrow.messaging.messaging.example.typed.greeting;
 
+import com.sparrow.messaging.protocol.enums.DefaultEventType;
+import com.sparrow.messaging.protocol.EventType;
 import com.sparrow.messaging.infrastructure.service.spring.AbstractSpringTypedSubscriber;
 import com.sparrow.messaging.messaging.example.typed.ExampleMessageType;
 import com.sparrow.messaging.protocol.MessageType;
@@ -30,6 +32,11 @@ import java.util.concurrent.atomic.AtomicReference;
 public class GreetingSubscriber extends AbstractSpringTypedSubscriber<GreetingMessage> {
     private static final Logger logger = LoggerFactory.getLogger(GreetingSubscriber.class);
     private final AtomicReference<GreetingMessage> lastMessage = new AtomicReference<>();
+
+    @Override
+    public EventType getEventType() {
+        return DefaultEventType.IM;
+    }
 
     @Override
     public MessageType getMessageType() {
