@@ -17,8 +17,8 @@
 
 package com.sparrow.messaging.protocol.api;
 
-import com.sparrow.messaging.protocol.EventType;
 import com.sparrow.messaging.protocol.MessageType;
+import com.sparrow.messaging.protocol.ProtocolType;
 import com.sparrow.messaging.protocol.TypedEvent;
 
 public interface TypedSubscriber<T extends TypedEvent> extends Subscriber<T> {
@@ -26,8 +26,15 @@ public interface TypedSubscriber<T extends TypedEvent> extends Subscriber<T> {
         return null;
     }
 
-    default EventType getEventType() {
+    default ProtocolType getProtocolType() {
         return null;
+    }
+
+    /**
+     * 默认登记为本地立即处理器；按消息类型分发的业务订阅者需明确返回 false。
+     */
+    default Boolean localImmediately() {
+        return true;
     }
 
 }

@@ -22,11 +22,11 @@ import com.sparrow.messaging.domain.service.pub.sub.typed.mapping.TypedPubSubMap
 import com.sparrow.messaging.infrastructure.service.spring.AbstractSpringSubscriber;
 import com.sparrow.messaging.infrastructure.service.spring.AbstractSpringTypedSubscriber;
 import com.sparrow.messaging.protocol.Event;
-import com.sparrow.messaging.protocol.EventType;
+import com.sparrow.messaging.protocol.ProtocolType;
 import com.sparrow.messaging.protocol.MessageType;
 import com.sparrow.messaging.protocol.TypedEvent;
 import com.sparrow.messaging.protocol.api.Subscriber;
-import com.sparrow.messaging.protocol.enums.DefaultEventType;
+import com.sparrow.messaging.protocol.enums.DefaultProtocolType;
 import org.aopalliance.intercept.MethodInterceptor;
 import org.junit.jupiter.api.Test;
 import org.springframework.aop.framework.ProxyFactory;
@@ -103,7 +103,7 @@ class SubscriberProxyTest {
             }
             context.refresh();
             Subscriber subscriber = typed
-                    ? context.getBean(TypedPubSubMappingContainer.class).getMessageHandler(new SampleTypedEvent())
+                    ? context.getBean(TypedPubSubMappingContainer.class).get(new SampleTypedEvent())
                     : context.getBean(PubSubMappingContainer.class).get(PlainEvent.class.getName());
             assertNotNull(subscriber);
             assertSame(context.getBean("securedSubscriber"), subscriber);
@@ -123,8 +123,8 @@ class SubscriberProxyTest {
         }
 
         @Override
-        public EventType getEventType() {
-            return DefaultEventType.IM;
+        public ProtocolType getProtocolType() {
+            return DefaultProtocolType.IM;
         }
     }
 
@@ -149,8 +149,13 @@ class SubscriberProxyTest {
         }
 
         @Override
-        public EventType getEventType() {
-            return DefaultEventType.IM;
+        public ProtocolType getProtocolType() {
+            return DefaultProtocolType.IM;
+        }
+
+        @Override
+        public Boolean localImmediately() {
+            return false;
         }
 
         @Override

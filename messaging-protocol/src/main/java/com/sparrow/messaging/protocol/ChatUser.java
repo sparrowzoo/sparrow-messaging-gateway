@@ -17,8 +17,8 @@ limitations under the License.
 
 package com.sparrow.messaging.protocol;
 
-import com.sparrow.protocol.LoginUser;
 import com.sparrow.protocol.constant.magic.Symbol;
+import com.sparrow.protocol.enums.DefaultUserCategory;
 import lombok.Data;
 
 import java.nio.charset.StandardCharsets;
@@ -62,17 +62,17 @@ public class ChatUser {
 
     public Integer getSessionCategory() {
         if (this.isVisitor()) {
-            return LoginUser.CATEGORY_VISITOR;
+            return DefaultUserCategory.VISITOR.getIdentity();
         }
         return category;
     }
 
     public Boolean isVisitor() {
-        return Objects.equals(this.category, LoginUser.CATEGORY_VISITOR);
+        return Objects.equals(this.category, DefaultUserCategory.VISITOR.getIdentity());
     }
 
     public Boolean isAI() {
-        return Objects.equals(this.category, LoginUser.CATEGORY_AI);
+        return Objects.equals(this.category, DefaultUserCategory.AI.getIdentity());
     }
 
     public String key() {

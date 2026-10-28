@@ -21,7 +21,7 @@ flowchart TD
     Publisher --> Target{"发布目标"}
     Target -->|"本地"| Business["查找业务订阅者并调用 subscribe"]
     Target -->|"文件示例"| File["只追加文件，由读取器另行消费"]
-    Publisher -->|"WebSocket 发布返回后"| Event["按 eventType 调用网关事件订阅者"]
+    Publisher -->|"本地任务执行时"| Event["按 protocolType 调用网关事件订阅者"]
     Kind -->|"PING 等不发布事件"| Event
     Event --> Reply["通过连接目录找到当前用户和设备，返回 ACK 或 PONG"]
     Reply --> Client
@@ -97,23 +97,16 @@ public class MessagingConfig {
 }
 ```
 
-`@EnableMessage` 装配连接目录、普通/typed 映射表、`DefaultPublisher`、`DefaultTypedPublisher`、`TypedPublishStrategy` 和 IM、PING、USER_STATUS 事件订阅者。
+`@EnableMessage` 装配连接目录、普通/typed 映射表、`DefaultPublisher`、`DefaultTypedPublisher`、`PublishStrategy`、`TypedPublishStrategy` 和 IM、AI、PING、状态查询的本地处理器。
 
 - 普通对象订阅者继承 `AbstractSpringSubscriber<你的消息类>`，实现 `subscribe` 并注册为 Spring Bean。
-- typed 业务订阅者继承 `AbstractSpringTypedSubscriber<你的消息类>`，实现 `subscribe`，通过 `getEventType()` 和 `getMessageType()` 分别声明事件类型与业务消息编号；两者必须与发送的消息一致。
-- 只处理网关事件的订阅者使用 `getEventType()`，不声明 `getMessageType()`；它与业务订阅是两个查找入口。
+- typed 业务订阅者继承 `AbstractSpringTypedSubscriber<你的消息类>`，实现 `subscribe`，通过 `getProtocolType()` 和 `getMessageType()` 分别声明协议类型与业务消息编号，并覆盖 `localImmediately()` 返回 `false`；类型和编号必须与发送的消息一致。
+- 本地回执、心跳等处理器使用 `getProtocolType()`，保留 `localImmediately()` 默认值 `true`，不需要声明业务消息编号；它与业务订阅分别登记，互不覆盖。
 - 消息编号由业务管理，保持在协议的 0–65535 范围；同一事件类型下，同一个有效编号的后登记订阅者会覆盖前者；不同事件类型各自保存业务编号。
 
 两个订阅基类直接在 `afterSingletonsInstantiated()` 中取得最终 Spring Bean 并自行登记。登记先于 `SmartLifecycle.start()`，不依赖应用事件广播器是否异步，方法上的鉴权、事务等拦截仍然生效。订阅者须使用启动时创建的普通单例，不支持懒加载或依赖 `FactoryBean` 产品自动登记；开启全局懒加载时，须将订阅者显式设为 `@Lazy(false)`。不要在构造器或 `afterPropertiesSet` 中发送业务消息；子类覆盖该回调时须调用 `super.afterSingletonsInstantiated()`。
 
-普通 `PublishStrategy` 需要接入方显式注册；typed 策略由 starter 提供。普通示例使用：
-
-```java
-import com.sparrow.messaging.domain.service.pub.sub.PublishStrategy;
-import org.springframework.context.annotation.Import;
-
-@Import(PublishStrategy.class)
-```
+普通和 typed 发布策略均由 starter 提供，不需要额外 `@Import(PublishStrategy.class)`；重复注册可能造成循环依赖。
 
 普通发布器按消息的 Java 类名精确找订阅者，typed 发布器按事件类型与业务消息编号组合找订阅者。没有自动父类匹配，也没有普通/typed 之间的自动回退。
 
@@ -131,7 +124,7 @@ flowchart TD
     Enable --> Beans["启动时创建普通单例订阅者 Bean"]
     Beans --> Register["订阅基类在 afterSingletonsInstantiated 登记最终 Bean"]
     Register --> Choice{"选择接入方式"}
-    Choice -->|"普通本地消息"| Plain["显式注册 PublishStrategy，按消息类名订阅"]
+    Choice -->|"普通本地消息"| Plain["使用已装配的 PublishStrategy，按消息类名订阅"]
     Choice -->|"typed 本地消息"| Typed["使用已装配的 TypedPublishStrategy，按事件类型和消息编号订阅"]
     Choice -->|"WebSocket"| AuthBean["提供业务 Authenticator 和业务订阅者"]
     AuthBean --> Bridge["把认证器、连接目录、typed 策略和订阅表绑定到 Sparrow 容器"]
@@ -143,19 +136,24 @@ flowchart TD
 
 | 接入事项 | 业务项目需要提供 | 框架提供 |
 | --- | --- | --- |
-| 普通本地消息 | `Event` 消息类、`AbstractSpringSubscriber` 子类、显式注册 `PublishStrategy` | 按消息类名登记、默认本地分发 |
+| 普通本地消息 | `Event` 消息类、`AbstractSpringSubscriber` 子类、使用已装配的 `PublishStrategy` | 按消息类名登记、默认本地分发 |
 | typed 本地消息 | `TypedEvent` 消息、声明相同事件类型和业务编号的 `AbstractSpringTypedSubscriber` 子类 | `TypedPublishStrategy`、按事件类型与业务编号查找 |
 | 自定义发布目标 | 对应的 `Publisher` 或 `TypedPublisher` Bean，以及路由映射 | 按路由选择发布器及默认回退 |
 | WebSocket | 真实认证器、业务订阅者、Spring 与 Sparrow 容器绑定、服务器生命周期管理 | 握手与协议解析、连接目录、默认 IM 回执与心跳响应 |
 
-目前 typed 订阅表按两层索引查找：先找 `eventType`，再找 `messageType`。例如消息是 `IM + 101`，业务订阅者就必须同时返回 `DefaultEventType.IM` 和编号为 `101` 的 `MessageType`；缺少事件类型的订阅者会在登记时明确报错；消息编号为空或超出 0–65535 时也会拒绝登记。
+目前 typed 订阅表按两层索引查找：先找 `protocolType`，再找 `messageType`。例如消息是 `IM + 101`，业务订阅者就必须同时返回 `DefaultProtocolType.IM` 和编号为 `101` 的 `MessageType`；缺少事件类型的订阅者会在登记时明确报错；消息编号为空或超出 0–65535 时也会拒绝登记。
 
 业务订阅者需要同时声明两个值。例如接收 `IM + 101` 的订阅者，应在自己的 `AbstractSpringTypedSubscriber` 子类中实现：
 
 ```java
 @Override
-public EventType getEventType() {
-    return DefaultEventType.IM;
+public ProtocolType getProtocolType() {
+    return DefaultProtocolType.IM;
+}
+
+@Override
+public Boolean localImmediately() {
+    return false; // 业务订阅者，不登记到本地回执表
 }
 
 @Override
@@ -164,9 +162,9 @@ public MessageType getMessageType() {
 }
 ```
 
-只处理 IM 回执的 `IMEventSubscriber` 则只声明事件类型，不声明业务编号，因此不会覆盖上面的业务订阅者。业务消息先经过业务订阅入口，网关响应再经过事件订阅入口。
+只处理 IM 接收回执的 `IMEventSubscriber` 保留 `localImmediately()=true`，不声明业务编号；业务订阅者明确返回 `false`，两者分别登记。网关依据协议的 `localImmediately()` 决定是否安排本地任务，依据 `needBusiness()` 决定是否调用 Publisher；订阅者的同名方法决定登记到哪张表。
 
-`IM` 的事件编号为 `8`，`AI` 为 `0`。默认 starter 装配 `IMEventSubscriber`，尚未自动装配 `AIEventSubscriber`；需要 AI 网关事件处理时，接入项目须显式注册它，并配置对应的 AI 业务订阅者。默认网关事件处理器本身不代替业务实现。
+`IM` 的协议编号为 `8`，`AI` 为 `0`。默认 starter 装配 IM 和 AI 接收回执处理器；业务项目仍需提供相应业务订阅者或自定义 Publisher。默认本地处理器不代替业务实现。
 
 ## 发布路由
 
@@ -176,7 +174,7 @@ public MessageType getMessageType() {
 sparrow.massaging.routing-publisher.mapping={'default':'defaultTypedPublisher','orders':'orderPublisher'}
 ```
 
-左侧是路由键，右侧是发布器 Bean 名称；`orderPublisher` 由业务项目提供。普通和 typed 策略共用路由映射，但分别在 `Publisher`、`TypedPublisher` 集合中查找。
+左侧是路由键，右侧是发布器 Bean 名称；`orderPublisher` 由业务项目提供。typed 消息先查 `routingKey_协议名`（例如 `orders_IM`），未命中再查原路由键 `orders`，因此既有配置继续生效。普通和 typed 策略共用路由映射，但分别在 `Publisher`、`TypedPublisher` 集合中查找。
 
 未配置时为空映射；显式空映射写 `{:}`，不要只写空等号。未映射的路由键保持原值。找不到发布器时，普通策略回退到 `defaultPublisher`，typed 策略回退到 `defaultTypedPublisher`；若使用自定义路由，应核对 Bean 名称，避免拼错后落入默认分发。
 
@@ -190,14 +188,14 @@ flowchart TD
     PlainStrategy --> PlainPublisher["命中的自定义发布器，或 defaultPublisher"]
     TypedStrategy --> TypedPublisher["命中的自定义发布器，或 defaultTypedPublisher"]
     PlainPublisher -->|"本地分发"| PlainMap["PubSubMappingContainer：按完整消息类名查找"]
-    TypedPublisher -->|"本地分发"| TypedMap["TypedPubSubMappingContainer：按 eventType 和 messageType 查找"]
+    TypedPublisher -->|"本地分发"| TypedMap["TypedPubSubMappingContainer：按 protocolType 和 messageType 查找"]
     PlainMap --> Subscribe["调用业务订阅者 subscribe"]
     TypedMap --> Subscribe
     PlainPublisher -->|"自定义文件发布"| Store["写入文件，等待读取"]
     TypedPublisher -->|"自定义文件发布"| Store
 ```
 
-`routingKey` 决定消息发往哪个发布目标，`eventType` 和 `messageType` 决定 typed 消息由谁处理。两者不混用：切换发布目标不需要把文件读取器改成发布器；读取器直接查订阅表并调用 `subscribe`。
+`routingKey` 决定消息发往哪个发布目标，`protocolType` 和 `messageType` 决定 typed 消息由谁处理。两者不混用：切换发布目标不需要把文件读取器改成发布器；读取器直接查订阅表并调用 `subscribe`。
 
 ## WebSocket 接入
 
@@ -227,8 +225,9 @@ sequenceDiagram
     C->>W: 二进制 Protocol
     W->>W: 校验连接，解析协议，设置认证身份
     alt IM 业务消息，使用默认本地发布
+        W->>W: 将接收回执任务放入当前 pipeline 队列
         W->>P: publish(protocol)
-        P->>B: 按事件类型和业务编号查找后调用 subscribe
+        P->>B: 按协议类型和业务编号查找后调用 subscribe
         B-->>P: 业务处理返回
         P-->>W: 发布返回
         W->>E: 按 IM 事件查找并调用 subscribe
@@ -243,7 +242,7 @@ sequenceDiagram
     end
 ```
 
-上图展示默认本地发布。业务发布失败时不会进入成功回执步骤；未知网关事件也会关闭连接。ACK 是发送者这台设备收到的网关响应，不代表收件人已经收到或已读。业务下行消息由业务项目显式调用 `ConnectionRegistry` 查找目标连接，再使用 `ClientConnection.sendMessage(...)` 发送；本项目不会自动把任意业务消息转发给收件人。
+上图展示默认本地发布。ACK 表示网关已收到并解析该消息，不表示业务处理成功，也不表示收件人已收到或已读。本地任务进入当前 pipeline 队列，不是独立业务线程；同步 Publisher 返回后任务才有机会执行。业务执行方式由 Publisher 决定。业务或本地处理失败时返回现有 ERROR 报文并保留连接；损坏报文、无效身份或失效连接仍关闭连接，严重 Error 关闭连接并抛出。FETCH_USER_STATUS 请求使用编号45，SEND_USER_STATUS 回复使用编号50，旧的50查询入口不再支持。业务下行消息由业务项目显式调用 `ConnectionRegistry` 查找目标连接，再使用 `ClientConnection.sendMessage(...)` 发送；本项目不会自动把任意业务消息转发给收件人。
 
 ### 客户端来源 IP
 
@@ -324,7 +323,7 @@ flowchart LR
     Disk --> Reader
 ```
 
-发布器不调用读取器，读取器也不依赖 Publisher。示例入口为了展示完整过程，在同一个 `main` 中先发布、再显式读取一次；这两个步骤可以分别触发，但当前没有实现独立消费进程、持续监听或消费进度管理。typed 文件保存的是事件编号和消息编号，IM 示例对应 `eventType=8`。
+发布器不调用读取器，读取器也不依赖 Publisher。示例入口为了展示完整过程，在同一个 `main` 中先发布、再显式读取一次；这两个步骤可以分别触发，但当前没有实现独立消费进程、持续监听或消费进度管理。typed 文件保存协议编号和消息编号，JSON 为兼容已有文件仍使用 `eventType` 键，IM 示例对应 `eventType=8`。
 
 ## 仓库
 

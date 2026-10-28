@@ -20,9 +20,10 @@ package com.sparrow.messaging.infrastructure.service.spring.event;
 import com.sparrow.messaging.domain.service.ClientConnection;
 import com.sparrow.messaging.domain.service.ConnectionRegistry;
 import com.sparrow.messaging.infrastructure.service.spring.AbstractSpringTypedSubscriber;
-import com.sparrow.messaging.protocol.EventType;
+import com.sparrow.messaging.protocol.ProtocolType;
 import com.sparrow.messaging.protocol.Protocol;
-import com.sparrow.messaging.protocol.enums.DefaultEventType;
+import com.sparrow.messaging.protocol.enums.DefaultProtocolType;
+import com.sparrow.messaging.protocol.enums.ChatType;
 import jakarta.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 
@@ -41,11 +42,16 @@ public class UserStatusEventSubscriber extends AbstractSpringTypedSubscriber<Pro
             log.debug("Skip user status reply: sender connection is no longer registered");
             return;
         }
-        Protocol userStatus = protocol.clone();
-        userStatus.setPayload("联系人在线状态");
+        Protocol response = new Protocol();
+        response.setProtocolType(DefaultProtocolType.SEND_USER_STATUS);
+        response.setDevice(protocol.getDevice());
+        response.setMessageType(protocol.getMessageType());
+        // 查询只含协议段；个人状态回复仍需填写内容段的聊天类型。
+        response.setChatType(ChatType.ONE_2_ONE);
+        response.setPayload("联系人在线状态");
         String userKey = protocol.getSender().key();
         var device = protocol.getDevice();
-        clientConnection.sendMessage(userStatus.encode()).whenComplete((ignored, failure) -> {
+        clientConnection.sendMessage(response.encode()).whenComplete((ignored, failure) -> {
             if (failure != null) {
                 log.warn("Failed to send user status to {} on {}", userKey, device, failure);
             }
@@ -53,7 +59,7 @@ public class UserStatusEventSubscriber extends AbstractSpringTypedSubscriber<Pro
     }
 
     @Override
-    public EventType getEventType() {
-        return DefaultEventType.USER_STATUS;
+    public ProtocolType getProtocolType() {
+        return DefaultProtocolType.FETCH_USER_STATUS;
     }
 }

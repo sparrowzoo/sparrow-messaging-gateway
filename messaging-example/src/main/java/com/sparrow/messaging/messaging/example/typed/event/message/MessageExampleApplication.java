@@ -21,9 +21,9 @@ import com.sparrow.messaging.messaging.example.typed.event.EventExampleClient;
 import com.sparrow.messaging.protocol.ChatUser;
 import com.sparrow.messaging.protocol.Protocol;
 import com.sparrow.messaging.protocol.enums.ChatType;
-import com.sparrow.messaging.protocol.enums.DefaultEventType;
+import com.sparrow.messaging.protocol.enums.DefaultProtocolType;
 import com.sparrow.messaging.starter.EnableMessage;
-import com.sparrow.protocol.LoginUser;
+import com.sparrow.protocol.enums.DefaultUserCategory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.SpringApplication;
@@ -38,18 +38,18 @@ public class MessageExampleApplication {
     public static void main(String[] args) throws Throwable {
         try (var context = SpringApplication.run(MessageExampleApplication.class, args)) {
             Protocol ack = sendMessage(context);
-            logger.info("发送 MESSAGE，收到 eventType={}", ack.getEventType());
+            logger.info("发送 MESSAGE，收到 protocolType={}", ack.getProtocolType());
         }
     }
 
     public static Protocol sendMessage(ApplicationContext context) throws Throwable {
         try (var client = new EventExampleClient(context)) {
             Protocol message = new Protocol();
-            message.setEventType(DefaultEventType.IM);
+            message.setProtocolType(DefaultProtocolType.IM);
             message.setDevice(client.getDevice());
             message.setChatType(ChatType.ONE_2_ONE);
             message.setMessageType((short) 1);
-            message.setReceiver(ChatUser.longUserId(1002L, LoginUser.CATEGORY_REGISTER));
+            message.setReceiver(ChatUser.longUserId(1002L, DefaultUserCategory.REGISTER.getIdentity()));
             message.setSender(client.getSender());
             message.setPayload("Hello ACK");
             message.setClientSendTime(System.currentTimeMillis());

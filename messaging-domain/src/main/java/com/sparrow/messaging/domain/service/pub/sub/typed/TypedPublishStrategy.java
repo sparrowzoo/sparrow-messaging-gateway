@@ -36,8 +36,7 @@ public class TypedPublishStrategy implements TypedPublisher {
 
     @Override
     public void publish(TypedEvent event) throws Throwable {
-        String routingKey = event.getRoutingKey();
-        String publisherKey = this.routingKeyPublisherMapping.getPublisherKey(routingKey);
+        String publisherKey = this.routingKeyPublisherMapping.getPublisherKey(event);
         TypedPublisher publisher = typedPublisherMap.get(publisherKey);
 
         if (publisher == null) {

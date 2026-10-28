@@ -19,7 +19,7 @@ package com.sparrow.messaging.domain.service.pub.sub.typed.mapping;
 
 import com.sparrow.messaging.protocol.*;
 import com.sparrow.messaging.protocol.api.TypedSubscriber;
-import com.sparrow.messaging.protocol.enums.DefaultEventType;
+import com.sparrow.messaging.protocol.enums.DefaultProtocolType;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -38,8 +38,9 @@ class TypedPubSubMappingContainerTest {
         var mappings = new TypedPubSubMappingContainer();
         assertThrows(IllegalArgumentException.class, () -> mappings.put(new TypedSubscriber<Protocol>() {
             public void subscribe(Protocol event) {}
+            public Boolean localImmediately() { return false; }
             public MessageType getMessageType() { return MissingIdentity.MESSAGE; }
-            public EventType getEventType() { return DefaultEventType.IM; }
+            public ProtocolType getProtocolType() { return DefaultProtocolType.IM; }
         }));
     }
 
@@ -48,11 +49,11 @@ class TypedPubSubMappingContainerTest {
         var mappings = new TypedPubSubMappingContainer();
         var subscriber = new TypedSubscriber<Protocol>() {
             public void subscribe(Protocol event) {}
-            public EventType getEventType() { return DefaultEventType.PING; }
+            public ProtocolType getProtocolType() { return DefaultProtocolType.PING; }
         };
         mappings.put(subscriber);
-        var ping = new Protocol();ping.setEventType(DefaultEventType.PING);
-        assertSame(subscriber, mappings.getEventHandler(ping));
+        var ping = new Protocol();ping.setProtocolType(DefaultProtocolType.PING);
+        assertSame(subscriber, mappings.getImmediately(ping));
     }
 
     @Test
@@ -65,23 +66,23 @@ class TypedPubSubMappingContainerTest {
     @Test
     void sameMessageNumberInDifferentEventTypesUsesIndependentSubscribers() {
         var mappings = new TypedPubSubMappingContainer();
-        var im = subscriber(DefaultEventType.IM, TestMessageType.TEXT);
-        var ai = subscriber(DefaultEventType.AI, TestMessageType.TEXT);
-        var imReply = subscriber(DefaultEventType.IM, null);
+        var im = subscriber(DefaultProtocolType.IM, TestMessageType.TEXT);
+        var ai = subscriber(DefaultProtocolType.AI, TestMessageType.TEXT);
+        var imReply = subscriber(DefaultProtocolType.IM, null);
         mappings.put(im);
         mappings.put(ai);
         mappings.put(imReply);
 
         var message = new Protocol();
         message.setMessageType((short) 101);
-        message.setEventType(DefaultEventType.IM);
-        assertSame(im, mappings.getMessageHandler(message));
-        assertSame(imReply, mappings.getEventHandler(message));
-        message.setEventType(DefaultEventType.AI);
-        assertSame(ai, mappings.getMessageHandler(message));
-        assertNull(mappings.getEventHandler(message));
-        message.setEventType(DefaultEventType.PING);
-        assertNull(mappings.getMessageHandler(message));
+        message.setProtocolType(DefaultProtocolType.IM);
+        assertSame(im, mappings.get(message));
+        assertSame(imReply, mappings.getImmediately(message));
+        message.setProtocolType(DefaultProtocolType.AI);
+        assertSame(ai, mappings.get(message));
+        assertNull(mappings.getImmediately(message));
+        message.setProtocolType(DefaultProtocolType.PING);
+        assertNull(mappings.get(message));
     }
 
     @Test
@@ -89,25 +90,36 @@ class TypedPubSubMappingContainerTest {
         var mappings = new TypedPubSubMappingContainer();
         for (var type : new TestMessageType[] {TestMessageType.NEGATIVE, TestMessageType.TOO_LARGE}) {
             assertThrows(IllegalArgumentException.class,
-                () -> mappings.put(subscriber(DefaultEventType.IM, type)));
+                () -> mappings.put(subscriber(DefaultProtocolType.IM, type)));
         }
     }
 
     @Test
     void unsignedMaximumMessageNumberCanBeLookedUp() {
         var mappings = new TypedPubSubMappingContainer();
-        var handler = subscriber(DefaultEventType.IM, TestMessageType.HIGH);
+        var handler = subscriber(DefaultProtocolType.IM, TestMessageType.HIGH);
         mappings.put(handler);
         var message = new Protocol();
-        message.setEventType(DefaultEventType.IM);
+        message.setProtocolType(DefaultProtocolType.IM);
         message.setMessageType((short) 65535);
-        assertSame(handler, mappings.getMessageHandler(message));
+        assertSame(handler, mappings.get(message));
     }
 
-    private TypedSubscriber<Protocol> subscriber(EventType eventType, MessageType messageType) {
+    @Test
+    void businessSubscriberWithoutAMessageTypeIsRejected() {
+        var mappings = new TypedPubSubMappingContainer();
+        assertThrows(IllegalArgumentException.class, () -> mappings.put(new TypedSubscriber<Protocol>() {
+            public ProtocolType getProtocolType() { return DefaultProtocolType.IM; }
+            public Boolean localImmediately() { return false; }
+            public void subscribe(Protocol event) {}
+        }));
+    }
+
+    private TypedSubscriber<Protocol> subscriber(ProtocolType eventType, MessageType messageType) {
         return new TypedSubscriber<Protocol>() {
             public void subscribe(Protocol event) {}
-            public EventType getEventType() { return eventType; }
+            public ProtocolType getProtocolType() { return eventType; }
+            public Boolean localImmediately() { return messageType == null; }
             public MessageType getMessageType() { return messageType; }
         };
     }

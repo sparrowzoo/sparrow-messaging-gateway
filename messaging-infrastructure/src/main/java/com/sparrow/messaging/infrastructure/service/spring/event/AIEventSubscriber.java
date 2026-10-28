@@ -17,14 +17,14 @@ limitations under the License.
 
 package com.sparrow.messaging.infrastructure.service.spring.event;
 
-import com.sparrow.messaging.protocol.EventType;
-import com.sparrow.messaging.protocol.enums.DefaultEventType;
+import com.sparrow.messaging.protocol.ProtocolType;
+import com.sparrow.messaging.protocol.enums.DefaultProtocolType;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public class AIEventSubscriber extends IMEventSubscriber {
     @Override
-    public EventType getEventType() {
-        return DefaultEventType.AI;
+    public ProtocolType getProtocolType() {
+        return DefaultProtocolType.AI_REQUEST;
     }
 }

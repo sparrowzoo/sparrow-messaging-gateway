@@ -45,7 +45,7 @@ public class FilePublisher implements TypedPublisher {
         }
         Files.createDirectories(path.getParent());
         String line = JSON.toJSONString(Map.of("text", message.text(),
-                "messageType", message.getMessageType(), "eventType", message.getEventType().getIdentity())) + "\n";
+                "messageType", message.getMessageType(), "eventType", message.getProtocolType().getIdentity())) + "\n";
         Files.writeString(path, line, StandardCharsets.UTF_8,
                 StandardOpenOption.CREATE, StandardOpenOption.APPEND);
     }

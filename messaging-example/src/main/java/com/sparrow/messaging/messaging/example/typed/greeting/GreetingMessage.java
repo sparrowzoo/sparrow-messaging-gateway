@@ -18,9 +18,9 @@ limitations under the License.
 package com.sparrow.messaging.messaging.example.typed.greeting;
 
 import com.sparrow.messaging.messaging.example.typed.ExampleMessageType;
-import com.sparrow.messaging.protocol.EventType;
+import com.sparrow.messaging.protocol.ProtocolType;
 import com.sparrow.messaging.protocol.TypedEvent;
-import com.sparrow.messaging.protocol.enums.DefaultEventType;
+import com.sparrow.messaging.protocol.enums.DefaultProtocolType;
 
 public record GreetingMessage(String text) implements TypedEvent {
     @Override
@@ -29,7 +29,7 @@ public record GreetingMessage(String text) implements TypedEvent {
     }
 
     @Override
-    public EventType getEventType() {
-        return DefaultEventType.IM;
+    public ProtocolType getProtocolType() {
+        return DefaultProtocolType.IM;
     }
 }

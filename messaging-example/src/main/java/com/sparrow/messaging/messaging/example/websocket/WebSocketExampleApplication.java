@@ -26,10 +26,12 @@ import com.sparrow.messaging.messaging.example.typed.ExampleMessageType;
 import com.sparrow.messaging.protocol.ChatUser;
 import com.sparrow.messaging.protocol.Protocol;
 import com.sparrow.messaging.protocol.enums.ChatType;
-import com.sparrow.messaging.protocol.enums.DefaultEventType;
+import com.sparrow.messaging.protocol.enums.DefaultProtocolType;
 import com.sparrow.messaging.starter.EnableMessage;
 import com.sparrow.protocol.BusinessException;
 import com.sparrow.protocol.LoginUser;
+import com.sparrow.protocol.enums.DefaultUserCategory;
+import com.sparrow.protocol.enums.DefaultUserCategory;
 import com.sparrow.protocol.enums.DeviceType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,8 +49,8 @@ public class WebSocketExampleApplication {
     public static void main(String[] args) throws Exception {
         try (var context = SpringApplication.run(WebSocketExampleApplication.class, args)) {
             Exchange result = runExample(context);
-            logger.info("真实 WebSocket 发送 PING，收到 eventType={}", result.pong().getEventType());
-            logger.info("真实 WebSocket 发送 MESSAGE，收到 eventType={}", result.ack().getEventType());
+            logger.info("真实 WebSocket 发送 PING，收到 protocolType={}", result.pong().getProtocolType());
+            logger.info("真实 WebSocket 发送 MESSAGE，收到 protocolType={}", result.ack().getProtocolType());
         }
     }
 
@@ -56,17 +58,17 @@ public class WebSocketExampleApplication {
         try (var server = new ExistingWebSocketServer(context);
                 var client = new RealWebSocketClient(server.uri(), TOKEN)) {
             Protocol ping = new Protocol();
-            ping.setEventType(DefaultEventType.PING);
+            ping.setProtocolType(DefaultProtocolType.PING);
             Protocol pong = client.send(ping);
 
             Protocol message = new Protocol();
-            message.setEventType(DefaultEventType.IM);
+            message.setProtocolType(DefaultProtocolType.IM);
             message.setDevice(DeviceType.PC);
             message.setChatType(ChatType.ONE_2_ONE);
             message.setMessageType(ExampleMessageType.GREETING.getIdentity().shortValue());
-            message.setReceiver(ChatUser.longUserId(1002L, LoginUser.CATEGORY_REGISTER));
+            message.setReceiver(ChatUser.longUserId(1002L, DefaultUserCategory.REGISTER.getIdentity()));
             // 网关必须用认证用户覆盖客户端填写的发送者。
-            message.setSender(ChatUser.longUserId(9999L, LoginUser.CATEGORY_REGISTER));
+            message.setSender(ChatUser.longUserId(9999L, DefaultUserCategory.REGISTER.getIdentity()));
             message.setPayload("Hello real WebSocket");
             message.setClientSendTime(System.currentTimeMillis());
             Protocol ack = client.send(message);
@@ -89,7 +91,7 @@ public class WebSocketExampleApplication {
                 }
                 DefaultLoginUser user = new DefaultLoginUser();
                 user.setUserId(1001L);
-                user.setCategory(LoginUser.CATEGORY_REGISTER);
+                user.setCategory(DefaultUserCategory.REGISTER.getIdentity());
                 user.setDeviceType(DeviceType.PC);
                 return user;
             }

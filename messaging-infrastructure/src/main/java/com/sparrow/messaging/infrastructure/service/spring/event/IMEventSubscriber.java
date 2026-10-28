@@ -20,9 +20,9 @@ package com.sparrow.messaging.infrastructure.service.spring.event;
 import com.sparrow.messaging.domain.service.ClientConnection;
 import com.sparrow.messaging.domain.service.ConnectionRegistry;
 import com.sparrow.messaging.infrastructure.service.spring.AbstractSpringTypedSubscriber;
-import com.sparrow.messaging.protocol.EventType;
+import com.sparrow.messaging.protocol.ProtocolType;
 import com.sparrow.messaging.protocol.Protocol;
-import com.sparrow.messaging.protocol.enums.DefaultEventType;
+import com.sparrow.messaging.protocol.enums.DefaultProtocolType;
 import jakarta.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 
@@ -53,7 +53,7 @@ public class IMEventSubscriber extends AbstractSpringTypedSubscriber<Protocol> {
     }
 
     @Override
-    public EventType getEventType() {
-        return DefaultEventType.IM;
+    public ProtocolType getProtocolType() {
+        return DefaultProtocolType.IM;
     }
 }

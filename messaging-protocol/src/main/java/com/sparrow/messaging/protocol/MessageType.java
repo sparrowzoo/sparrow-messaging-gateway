@@ -20,5 +20,4 @@ package com.sparrow.messaging.protocol;
 import com.sparrow.protocol.EnumIdentityAccessor;
 
 public interface MessageType extends EnumIdentityAccessor {
-    String name();
 }

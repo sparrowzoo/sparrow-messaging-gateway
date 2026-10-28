@@ -122,7 +122,7 @@ public class RealWebSocketClient implements WebSocket.Listener, AutoCloseable {
         if (response instanceof Throwable error) {
             throw new IllegalStateException("WebSocket 收发失败", error);
         }
-        throw new IllegalStateException("等待 WebSocket 响应超时：" + message.getEventType());
+        throw new IllegalStateException("等待 WebSocket 响应超时：" + message.getProtocolType());
     }
 
     @Override

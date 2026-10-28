@@ -18,7 +18,7 @@ limitations under the License.
 package com.sparrow.messaging.protocol;
 
 public class ProtocolSegmentIndex {
-    public static final int EVENT_SEGMENT = 0;
+    public static final int PROTOCOL_SEGMENT = 0;
     public static final int CONTENT_SEGMENT = 20;
     public static final int TIME_SEGMENT = 30;
     public static final int USER_SEGMENT = 40;

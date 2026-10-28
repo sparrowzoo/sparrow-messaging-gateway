@@ -28,7 +28,6 @@
     <modelVersion>4.0.0</modelVersion>
     <properties>
         <sparrow.version>1.0.0-SNAPSHOT</sparrow.version>
-        <sparrow-protocol-mq.version>1.0.0-SNAPSHOT</sparrow-protocol-mq.version>
     </properties>
     <artifactId>messaging-rocketmq-client</artifactId>
     <name>${project.artifactId}</name>

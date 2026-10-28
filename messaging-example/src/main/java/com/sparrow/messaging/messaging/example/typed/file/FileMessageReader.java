@@ -21,7 +21,7 @@ import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONException;
 import com.alibaba.fastjson.JSONObject;
 import com.sparrow.messaging.domain.service.pub.sub.typed.mapping.TypedPubSubMappingContainer;
-import com.sparrow.messaging.protocol.enums.DefaultEventType;
+import com.sparrow.messaging.protocol.enums.DefaultProtocolType;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -54,7 +54,7 @@ public class FileMessageReader {
             while ((line = reader.readLine()) != null) {
                 FileMessage message = decode(line, count + 1);
                 // 按文件中保存的消息类型直接找订阅者；读取过程不依赖 Publisher。
-                var subscriber = typedPubSubMappingContainer.getMessageHandler(message);
+                var subscriber = typedPubSubMappingContainer.get(message);
                 if (subscriber == null) {
                     throw new IllegalStateException("No subscriber for message type: " + message.getMessageType());
                 }
@@ -73,7 +73,7 @@ public class FileMessageReader {
             }
             if (!(json.get("messageType") instanceof Integer messageType)
                     || messageType < Short.MIN_VALUE || messageType > Short.MAX_VALUE
-                    || !DefaultEventType.IM.getIdentity().equals(json.get("eventType"))) {
+                    || !DefaultProtocolType.IM.getIdentity().equals(json.get("eventType"))) {
                 throw new IOException("Invalid message type at " + path + ":" + lineNumber);
             }
             return new FileMessage(text, messageType.shortValue());

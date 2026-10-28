@@ -35,8 +35,7 @@ public class PublishStrategy implements Publisher {
 
     @Override
     public void publish(Event event) throws Throwable {
-        String routingKey = event.getRoutingKey();
-        String publisherKey = this.routingKeyPublisherMapping.getPublisherKey(routingKey);
+        String publisherKey = this.routingKeyPublisherMapping.getPublisherKey(event);
         Publisher publisher = publisherMap.get(publisherKey);
         if (publisher == null) {
             publisher = publisherMap.get("defaultPublisher");

@@ -89,6 +89,35 @@ class ReplySubscriberTest {
         }
     }
 
+    @Test
+    void statusQueryRepliesWithAContentBearingStatusMessage() throws Exception {
+        var directory = new MultiDeviceConnectionRegistry();
+        var channel = new io.netty.channel.embedded.EmbeddedChannel();
+        var user = new DefaultLoginUser();user.setUserId(1L);user.setCategory(1);user.setDeviceType(DeviceType.PC);
+        directory.register(new com.sparrow.messaging.infrastructure.service.netty.NettyWebsocketConnection(channel, user));
+        var subscriber = new UserStatusEventSubscriber();
+        var field = UserStatusEventSubscriber.class.getDeclaredField("connectionRegistry");
+        field.setAccessible(true);field.set(subscriber, directory);
+        try {
+            var request = new Protocol(new byte[]{45});
+            request.setSender(ChatUser.longUserId(1L, 1));request.setDevice(DeviceType.PC);
+            assertDoesNotThrow(() -> subscriber.subscribe(request));
+            io.netty.handler.codec.http.websocketx.BinaryWebSocketFrame frame = channel.readOutbound();
+            assertNotNull(frame);
+            try {
+                var response = new Protocol(frame.content().nioBuffer());
+                assertEquals(DefaultProtocolType.SEND_USER_STATUS, response.getProtocolType());
+                assertEquals("联系人在线状态", response.getPayload());
+                assertEquals(DefaultProtocolType.FETCH_USER_STATUS, request.getProtocolType());
+                assertNull(request.getPayload());
+            } finally {
+                frame.release();
+            }
+        } finally {
+            channel.finishAndReleaseAll();
+        }
+    }
+
     private List<Subscriber<Protocol>> replies() {
         return List.of(new IMEventSubscriber(), new PingSubscriber(), new UserStatusEventSubscriber());
     }
@@ -99,7 +128,7 @@ class ReplySubscriberTest {
     }
 
     private Protocol message() {
-        var message = new Protocol();message.setEventType(DefaultEventType.IM);
+        var message = new Protocol();message.setProtocolType(DefaultProtocolType.IM);
         message.setSender(ChatUser.longUserId(1L, 1));message.setReceiver(ChatUser.longUserId(2L, 1));
         message.setDevice(DeviceType.PC);message.setChatType(ChatType.ONE_2_ONE);message.setClientSendTime(1L);
         return message;

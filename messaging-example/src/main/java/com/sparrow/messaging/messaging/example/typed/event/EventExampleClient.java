@@ -23,7 +23,7 @@ import com.sparrow.messaging.domain.service.pub.sub.typed.mapping.TypedPubSubMap
 import com.sparrow.messaging.infrastructure.service.netty.NettyWebsocketConnection;
 import com.sparrow.messaging.protocol.ChatUser;
 import com.sparrow.messaging.protocol.Protocol;
-import com.sparrow.protocol.LoginUser;
+import com.sparrow.protocol.enums.DefaultUserCategory;
 import com.sparrow.protocol.enums.DeviceType;
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.handler.codec.http.websocketx.BinaryWebSocketFrame;
@@ -42,7 +42,7 @@ public class EventExampleClient implements AutoCloseable {
         connections = context.getBean(ConnectionRegistry.class);
         subscriptions = context.getBean(TypedPubSubMappingContainer.class);
         loginUser.setUserId(1001L);
-        loginUser.setCategory(LoginUser.CATEGORY_REGISTER);
+        loginUser.setCategory(DefaultUserCategory.REGISTER.getIdentity());
         loginUser.setDeviceType(DeviceType.PC);
         connections.register(new NettyWebsocketConnection(channel, loginUser));
     }
@@ -60,11 +60,11 @@ public class EventExampleClient implements AutoCloseable {
         // PING 只有事件字节，发送者和设备使用连接中的可信身份。
         request.setSender(getSender());
         request.setDevice(getDevice());
-        subscriptions.getEventHandler(request).subscribe(request);
+        subscriptions.getImmediately(request).subscribe(request);
 
         BinaryWebSocketFrame response = channel.readOutbound();
         if (response == null) {
-            throw new IllegalStateException("事件订阅者没有返回消息：" + request.getEventType());
+            throw new IllegalStateException("事件订阅者没有返回消息：" + request.getProtocolType());
         }
         try {
             return new Protocol(response.content().nioBuffer());

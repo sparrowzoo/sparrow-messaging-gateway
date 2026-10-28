@@ -17,6 +17,8 @@
 
 package com.sparrow.messaging.domain.service.pub.sub;
 
+import com.sparrow.messaging.protocol.Event;
+
 public interface RoutingKeyPublisherMapping {
-    String getPublisherKey(String routingKey);
+    String getPublisherKey(Event event);
 }

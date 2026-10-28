@@ -20,14 +20,12 @@ package com.sparrow.messaging.infrastructure.service.spring.event;
 import com.sparrow.messaging.domain.service.ClientConnection;
 import com.sparrow.messaging.domain.service.ConnectionRegistry;
 import com.sparrow.messaging.infrastructure.service.spring.AbstractSpringTypedSubscriber;
-import com.sparrow.messaging.protocol.EventType;
 import com.sparrow.messaging.protocol.Protocol;
-import com.sparrow.messaging.protocol.enums.DefaultEventType;
+import com.sparrow.messaging.protocol.ProtocolType;
+import com.sparrow.messaging.protocol.enums.DefaultProtocolType;
 import jakarta.inject.Inject;
-import jakarta.inject.Named;
 import lombok.extern.slf4j.Slf4j;
 
-@Named
 @Slf4j
 public class PingSubscriber extends AbstractSpringTypedSubscriber<Protocol> {
 
@@ -39,6 +37,7 @@ public class PingSubscriber extends AbstractSpringTypedSubscriber<Protocol> {
         if (protocol == null || protocol.getSender() == null || protocol.getDevice() == null) {
             throw new IllegalArgumentException("Reply requires a protocol with sender and device");
         }
+        log.info("receive ping {}",protocol.getProtocolType());
         ClientConnection connection = connectionRegistry.findConnection(protocol.getSender(), protocol.getDevice());
         if (connection == null) {
             log.debug("Skip PONG: sender connection is no longer registered");
@@ -55,7 +54,7 @@ public class PingSubscriber extends AbstractSpringTypedSubscriber<Protocol> {
     }
 
     @Override
-    public EventType getEventType() {
-        return DefaultEventType.PING;
+    public ProtocolType getProtocolType() {
+        return DefaultProtocolType.PING;
     }
 }

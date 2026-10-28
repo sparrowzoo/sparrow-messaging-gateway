@@ -19,7 +19,7 @@ import com.sparrow.messaging.domain.service.pub.sub.typed.mapping.TypedPubSubMap
 import com.sparrow.messaging.protocol.Event;
 import com.sparrow.messaging.protocol.Protocol;
 import com.sparrow.messaging.protocol.api.Subscriber;
-import com.sparrow.messaging.protocol.enums.DefaultEventType;
+import com.sparrow.messaging.protocol.enums.DefaultProtocolType;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.context.SmartLifecycle;
@@ -53,7 +53,7 @@ class SubscriberStartupTest {
             });
             context.register(MessageConfiguration.class);
             context.refresh();
-            assertNotNull(context.getBean(TypedPubSubMappingContainer.class).getEventHandler(ping()));
+            assertNotNull(context.getBean(TypedPubSubMappingContainer.class).getImmediately(ping()));
             assertEquals(0, notified.get(), "Unrelated application events must remain asynchronous");
             new ArrayList<>(callbacks).forEach(Runnable::run);
             assertEquals(1, notified.get());
@@ -73,8 +73,8 @@ class SubscriberStartupTest {
                 assertSame(context.getBean("ordinary"), context.getBean(PubSubMappingContainer.class)
                         .get(SubscriberProxyTest.PlainEvent.class.getName()));
                 assertSame(context.getBean("typed"), context.getBean(TypedPubSubMappingContainer.class)
-                        .getMessageHandler(new SubscriberProxyTest.SampleTypedEvent()));
-                assertNotNull(context.getBean(TypedPubSubMappingContainer.class).getEventHandler(ping()));
+                        .get(new SubscriberProxyTest.SampleTypedEvent()));
+                assertNotNull(context.getBean(TypedPubSubMappingContainer.class).getImmediately(ping()));
                 starts.incrementAndGet();
             }));
             context.refresh();
@@ -96,7 +96,7 @@ class SubscriberStartupTest {
             assertNull(context.getBean(PubSubMappingContainer.class)
                     .get(SubscriberProxyTest.PlainEvent.class.getName()));
             assertNull(context.getBean(TypedPubSubMappingContainer.class)
-                    .getMessageHandler(new SubscriberProxyTest.SampleTypedEvent()));
+                    .get(new SubscriberProxyTest.SampleTypedEvent()));
         }
     }
 
@@ -133,7 +133,7 @@ class SubscriberStartupTest {
                     context.registerBean("businessService", SmartLifecycle.class, () -> new BusinessLifecycle(() -> {
                         Subscriber registered = typed
                                 ? context.getBean(TypedPubSubMappingContainer.class)
-                                    .getMessageHandler(new SubscriberProxyTest.SampleTypedEvent())
+                                    .get(new SubscriberProxyTest.SampleTypedEvent())
                                 : context.getBean(PubSubMappingContainer.class)
                                     .get(SubscriberProxyTest.PlainEvent.class.getName());
                         assertSame(context.getBean("secured"), registered);
@@ -175,7 +175,7 @@ class SubscriberStartupTest {
             assertSame(context.getBean("ordinary"), context.getBean(PubSubMappingContainer.class)
                     .get(SubscriberProxyTest.PlainEvent.class.getName()));
             assertSame(context.getBean("typed"), context.getBean(TypedPubSubMappingContainer.class)
-                    .getMessageHandler(new SubscriberProxyTest.SampleTypedEvent()));
+                    .get(new SubscriberProxyTest.SampleTypedEvent()));
         }
     }
 
@@ -201,7 +201,7 @@ class SubscriberStartupTest {
 
     private static Protocol ping() {
         var ping = new Protocol();
-        ping.setEventType(DefaultEventType.PING);
+        ping.setProtocolType(DefaultProtocolType.PING);
         return ping;
     }
 

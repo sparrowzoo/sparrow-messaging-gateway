@@ -21,5 +21,5 @@ package com.sparrow.messaging.protocol;
 public interface TypedEvent extends Event {
     short getMessageType();
 
-    EventType getEventType();
+    ProtocolType getProtocolType();
 }

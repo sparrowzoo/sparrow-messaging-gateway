@@ -18,6 +18,8 @@
 package com.sparrow.messaging.infrastructure.service.spring;
 
 import com.sparrow.messaging.domain.service.pub.sub.RoutingKeyPublisherMapping;
+import com.sparrow.messaging.protocol.Event;
+import com.sparrow.messaging.protocol.TypedEvent;
 import jakarta.inject.Named;
 import org.springframework.beans.factory.annotation.Value;
 
@@ -30,10 +32,18 @@ public class LocalConfigRoutingKeyPublisherMapping implements RoutingKeyPublishe
     private Map<String, String> routingKeyPublisherMapping;
 
     @Override
-    public String getPublisherKey(String routingKey) {
+    public String getPublisherKey(Event event) {
+        String defaultRoutingKey = event.getRoutingKey();
+        String routingKey = defaultRoutingKey;
+        if (event instanceof TypedEvent) {
+            routingKey += "_" + ((TypedEvent) event).getProtocolType().getDisplayName();
+        }
         String publisherKey = this.routingKeyPublisherMapping.get(routingKey);
         if (publisherKey == null) {
-            return routingKey;
+            publisherKey = this.routingKeyPublisherMapping.get(defaultRoutingKey);
+        }
+        if (publisherKey == null) {
+            return defaultRoutingKey;
         }
         return publisherKey;
     }

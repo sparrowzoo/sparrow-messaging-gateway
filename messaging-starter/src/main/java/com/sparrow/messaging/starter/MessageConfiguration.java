@@ -17,47 +17,90 @@ limitations under the License.
 
 package com.sparrow.messaging.starter;
 
-import com.sparrow.messaging.domain.service.*;
-import com.sparrow.messaging.domain.service.pub.sub.RoutingKeyPublisherMapping;
-import com.sparrow.messaging.infrastructure.service.spring.LocalConfigRoutingKeyPublisherMapping;
-import com.sparrow.messaging.domain.service.pub.sub.mapping.PubSubMappingContainer;
-import com.sparrow.messaging.domain.service.pub.sub.typed.mapping.TypedPubSubMappingContainer;
+import com.sparrow.messaging.domain.service.ConnectionRegistry;
+import com.sparrow.messaging.domain.service.MultiDeviceConnectionRegistry;
 import com.sparrow.messaging.domain.service.pub.sub.DefaultPublisher;
+import com.sparrow.messaging.domain.service.pub.sub.PublishStrategy;
+import com.sparrow.messaging.domain.service.pub.sub.RoutingKeyPublisherMapping;
+import com.sparrow.messaging.domain.service.pub.sub.mapping.PubSubMappingContainer;
 import com.sparrow.messaging.domain.service.pub.sub.typed.DefaultTypedPublisher;
 import com.sparrow.messaging.domain.service.pub.sub.typed.TypedPublishStrategy;
+import com.sparrow.messaging.domain.service.pub.sub.typed.mapping.TypedPubSubMappingContainer;
+import com.sparrow.messaging.infrastructure.service.spring.LocalConfigRoutingKeyPublisherMapping;
+import com.sparrow.messaging.infrastructure.service.spring.event.AIEventSubscriber;
 import com.sparrow.messaging.infrastructure.service.spring.event.IMEventSubscriber;
 import com.sparrow.messaging.infrastructure.service.spring.event.PingSubscriber;
 import com.sparrow.messaging.infrastructure.service.spring.event.UserStatusEventSubscriber;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.SearchStrategy;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Import;
 
 @Configuration(proxyBeanMethods = false)
-@Import({DefaultPublisher.class, DefaultTypedPublisher.class, PingSubscriber.class,
-            IMEventSubscriber.class, UserStatusEventSubscriber.class})
 public class MessageConfiguration {
+    @Bean
+    public DefaultPublisher defaultPublisher() {
+        return new DefaultPublisher();
+    }
+
+    @Bean
+    public DefaultTypedPublisher defaultTypedPublisher() {
+        return new DefaultTypedPublisher();
+    }
+
+    @Bean
+    public PingSubscriber pingSubscriber() {
+        return new PingSubscriber();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(name = "imEventSubscriber")
+    public IMEventSubscriber imEventSubscriber() {
+        return new IMEventSubscriber();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(name = "aiEventSubscriber")
+    public AIEventSubscriber aiEventSubscriber() {
+        return new AIEventSubscriber();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(name = "userStatusEventSubscriber")
+    public UserStatusEventSubscriber userStatusEventSubscriber() {
+        return new UserStatusEventSubscriber();
+    }
+
     @Bean
     public RoutingKeyPublisherMapping routingKeyPublisherMapping() {
         return new LocalConfigRoutingKeyPublisherMapping();
     }
 
     @Bean
+    @ConditionalOnMissingBean(ConnectionRegistry.class)
     public ConnectionRegistry connectionRegistry() {
         return new MultiDeviceConnectionRegistry();
     }
 
     @Bean
-    public PubSubMappingContainer defaultQueueHandlerMappingContainer() {
+    @ConditionalOnMissingBean(name = "pubSubMappingContainer", search = SearchStrategy.CURRENT)
+    public PubSubMappingContainer pubSubMappingContainer() {
         return new PubSubMappingContainer();
     }
 
     @Bean
-    public TypedPubSubMappingContainer routableTypedHandlerMappingContainer() {
+    @ConditionalOnMissingBean(name = "typedPubSubMappingContainer", search = SearchStrategy.CURRENT)
+    public TypedPubSubMappingContainer typedPubSubMappingContainer() {
         return new TypedPubSubMappingContainer();
     }
 
     @Bean
-    public TypedPublishStrategy publishStrategy() {
+    public PublishStrategy publishStrategy() {
+        return new PublishStrategy();
+    }
+
+    @Bean
+    public TypedPublishStrategy typedPublishStrategy() {
         return new TypedPublishStrategy();
     }
 }

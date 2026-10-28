@@ -16,18 +16,28 @@ limitations under the License.
 */
 package com.sparrow.messaging.domain.service;
 
+import com.sparrow.constant.DateTime;
 import com.sparrow.messaging.protocol.ChatUser;
 import com.sparrow.protocol.BusinessException;
 import com.sparrow.protocol.LoginUser;
+import com.sparrow.protocol.enums.DefaultUserCategory;
 import com.sparrow.protocol.enums.DeviceType;
+import com.sparrow.support.IpSupport;
+import com.sparrow.utility.DateTimeUtility;
+import jakarta.inject.Inject;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 
+@Slf4j
 public class MultiDeviceConnectionRegistry implements ConnectionRegistry {
     private final Object lock = new Object();
     private final Map<String, Map<DeviceType, ClientConnection>> registry = new HashMap<>();
+
+    @Inject
+    private IpSupport ipSupport;
 
     @Override
     public ClientConnection register(ClientConnection connection) {
@@ -36,6 +46,15 @@ public class MultiDeviceConnectionRegistry implements ConnectionRegistry {
         synchronized (lock) {
             Map<DeviceType, ClientConnection> connections = registry.computeIfAbsent(key, k -> new HashMap<>());
             ClientConnection previous = connections.put(user.getDeviceType(), connection);
+            if (previous != null) {
+                LoginUser previousUser = previous.loginUser();
+                log.info("{} on {}  connection: IP:{},expireAt:{} is replace by {}",
+                        previousUser.getUserId(),
+                        previousUser.getDeviceType(),
+                        this.ipSupport.parse(previousUser.getIp()),
+                        DateTimeUtility.getFormatTime(previousUser.getExpireAt(), DateTime.FORMAT_YYYY_MM_DD_HH_MM_SS),
+                        this.ipSupport.parse(user.getIp()));
+            }
             return previous == connection ? null : previous;
         }
     }
@@ -92,7 +111,7 @@ public class MultiDeviceConnectionRegistry implements ConnectionRegistry {
 
     @Override
     public Map<DeviceType, ClientConnection> findConnections(Long userId) throws BusinessException {
-        return findConnections(ChatUser.longUserId(userId, LoginUser.CATEGORY_REGISTER));
+        return findConnections(ChatUser.longUserId(userId, DefaultUserCategory.REGISTER.getIdentity()));
     }
 
     @Override

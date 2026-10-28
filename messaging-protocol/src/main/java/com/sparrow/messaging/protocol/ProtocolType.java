@@ -17,9 +17,16 @@
 
 package com.sparrow.messaging.protocol;
 
+import com.sparrow.messaging.protocol.enums.TransmissionDirection;
 import com.sparrow.protocol.EnumIdentityAccessor;
 
-public interface EventType extends EnumIdentityAccessor {
-    Boolean publishable();
+public interface ProtocolType extends EnumIdentityAccessor {
     Integer getEndOfSegmentIndex();
+
+    TransmissionDirection direction();
+
+    Boolean localImmediately();
+
+    Boolean needBusiness();
+
 }

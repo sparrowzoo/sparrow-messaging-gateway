@@ -21,11 +21,9 @@ import com.sparrow.messaging.domain.service.pub.sub.PublishStrategy;
 import com.sparrow.messaging.starter.EnableMessage;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.context.annotation.Import;
 
 @SpringBootApplication
 @EnableMessage
-@Import(PublishStrategy.class)
 public class MessagingExampleApplication {
     public static void main(String[] args) throws Throwable {
         try (var context = SpringApplication.run(MessagingExampleApplication.class, args)) {

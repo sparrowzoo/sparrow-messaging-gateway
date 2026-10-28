@@ -18,7 +18,8 @@ limitations under the License.
 package com.sparrow.messaging.protocol;
 
 import com.sparrow.messaging.protocol.enums.ChatType;
-import com.sparrow.messaging.protocol.enums.DefaultEventType;
+import com.sparrow.messaging.protocol.enums.DefaultProtocolType;
+import com.sparrow.protocol.LoginUser;
 import com.sparrow.protocol.enums.DeviceType;
 import lombok.Data;
 
@@ -33,7 +34,7 @@ import java.util.Objects;
  * 使用 JDK 完成 IM 报文编解码，不依赖网络框架。
  *
  * <pre>
- * 事件段：eventType(1)
+ * 事件段：protocolType(1)
  * 控制及内容段：device(1) + chatType(1) + messageType(2)
  *              + payload 的 UTF-8 字节数(4) + payload
  * 时间段：时间文本的字节数(1) + clientSendTime[_serverTime]
@@ -41,7 +42,7 @@ import java.util.Objects;
  *          或 sender + sessionKey 的 UTF-8 字节数(1) + sessionKey（群聊）
  * 用户结构：ID 的字节数(1) + ID + category(1)
  * </pre>
- * eventType 决定报文结束于哪一段；PONG 等仅包含事件段的报文占一个字节。
+ * protocolType 决定报文结束于哪一段；PONG 等仅包含事件段的报文占一个字节。
  * 所有文本使用 UTF-8，多字节数值使用大端；长度和用户类别按无符号数处理。
  * messageType 用 short 保留完整的 16 位，业务上可使用 Short.toUnsignedInt 获取无符号值。
  * 单聊为兼容既有会话 key，双方类别限 0–9，ID 的 String.length() 限 1–99；
@@ -70,9 +71,13 @@ public class Protocol implements TypedEvent {
     public Protocol() {
     }
 
+    /**
+     * 消息来源的设备类型
+     */
     private DeviceType device;
     /**
-     * 业务消息类型 ID，范围 0–65535；在线协议中占两个字节，决定正文解析格式。
+     * 业务消息类型 ID，范围 0–65535；在线协议中占两个字节
+     * 决定正文格式
      */
     private short messageType;
     /**
@@ -80,9 +85,11 @@ public class Protocol implements TypedEvent {
      */
     private ChatType chatType;
     /**
-     * @see com.sparrow.messaging.protocol.enums.DefaultEventType
+     * @see DefaultProtocolType
+     * 决定协议的格式和标识
+     * 也间接决定业务类型
      */
-    private EventType eventType;
+    private ProtocolType protocolType;
     /**
      * 群聊 sessionKey 的 UTF-8 字节数；编解码时根据实际内容计算。
      */
@@ -111,6 +118,8 @@ public class Protocol implements TypedEvent {
      */
     private Long serverTime;
 
+    private LoginUser loginUser;
+
     /**
      * 解析数组中的完整一帧，不修改或保留输入数组。
      *
@@ -131,13 +140,14 @@ public class Protocol implements TypedEvent {
      */
     public Protocol(ByteBuffer frame) {
         ByteBuffer source = Objects.requireNonNull(frame, "frame").slice().order(ByteOrder.BIG_ENDIAN);
-        requireRemaining(source, 1, "eventType");
-        this.eventType = DefaultEventType.valueOf((int) source.get());
-        if (this.eventType == null) {
-            throw new IllegalArgumentException("event type is not found");
+        requireRemaining(source, 1, "protocolType");
+        this.protocolType = DefaultProtocolType.valueOf((int) source.get());
+        if (this.protocolType == null) {
+            throw new IllegalArgumentException("protocol type is not found");
         }
         //只解析第一段
-        if (this.eventType.getEndOfSegmentIndex() == ProtocolSegmentIndex.EVENT_SEGMENT) {
+        if (this.protocolType.getEndOfSegmentIndex() == ProtocolSegmentIndex.PROTOCOL_SEGMENT) {
+            requireCompleteFrame(source);
             return;
         }
         // 控制段：设备、聊天类型各一字节，消息类型两字节。
@@ -161,7 +171,8 @@ public class Protocol implements TypedEvent {
             this.payload = new String(readBytes(source, payloadLength, "payload"), StandardCharsets.UTF_8);
         }
         //只到内容段
-        if (this.eventType.getEndOfSegmentIndex() == ProtocolSegmentIndex.CONTENT_SEGMENT) {
+        if (this.protocolType.getEndOfSegmentIndex() == ProtocolSegmentIndex.CONTENT_SEGMENT) {
+            requireCompleteFrame(source);
             return;
         }
 
@@ -178,7 +189,8 @@ public class Protocol implements TypedEvent {
             this.serverTime = Long.valueOf(timestampArray[1]);
         }
 
-        if (this.eventType.getEndOfSegmentIndex() == ProtocolSegmentIndex.TIME_SEGMENT) {
+        if (this.protocolType.getEndOfSegmentIndex() == ProtocolSegmentIndex.TIME_SEGMENT) {
+            requireCompleteFrame(source);
             return;
         }
         //用户会话段
@@ -186,6 +198,7 @@ public class Protocol implements TypedEvent {
         if (this.isOne2One()) {
             this.receiver = parseUser(source);
             this.chatSession = ChatSession.create1To1Session(this.sender, this.receiver);
+            requireCompleteFrame(source);
             return;
         }
         requireRemaining(source, 1, "sessionLength");
@@ -195,6 +208,7 @@ public class Protocol implements TypedEvent {
             throw new IllegalArgumentException("sessionKey must contain the chat type prefix and a non-empty ID");
         }
         this.chatSession = ChatSession.parse(sessionKey);
+        requireCompleteFrame(source);
     }
 
     /**
@@ -242,7 +256,7 @@ public class Protocol implements TypedEvent {
     }
 
     /**
-     * 按 eventType 指定的结束段编码，字段顺序与完整报文构造方法一致。
+     * 按 protocolType 指定的结束段编码，字段顺序与完整报文构造方法一致。
      * 事件段之后的字段仅在对应段需要时校验；payload 可为空。
      * 包含时间段时 clientSendTime 必填，serverTime 可为空；包含用户会话段时用户和目标必填。
      *
@@ -250,16 +264,16 @@ public class Protocol implements TypedEvent {
      * @throws IllegalArgumentException 必填字段缺失、长度超限或字段值无效
      */
     public ByteBuffer encode() {
-        if (this.eventType == null) {
-            throw new IllegalArgumentException("eventType is required");
+        if (this.protocolType == null) {
+            throw new IllegalArgumentException("protocolType is required");
         }
-        EventType wireEventType = DefaultEventType.valueOf(this.eventType.getIdentity());
-        if (wireEventType == null) {
-            throw new IllegalArgumentException("event type is not found");
+        ProtocolType wireProtocolType = DefaultProtocolType.valueOf(this.protocolType.getIdentity());
+        if (wireProtocolType == null) {
+            throw new IllegalArgumentException("protocol type is not found");
         }
-        int endOfSegmentIndex = wireEventType.getEndOfSegmentIndex();
-        if (endOfSegmentIndex == ProtocolSegmentIndex.EVENT_SEGMENT) {
-            return ByteBuffer.wrap(new byte[]{wireEventType.getIdentity().byteValue()});
+        int endOfSegmentIndex = wireProtocolType.getEndOfSegmentIndex();
+        if (endOfSegmentIndex == ProtocolSegmentIndex.PROTOCOL_SEGMENT) {
+            return ByteBuffer.wrap(new byte[]{wireProtocolType.getIdentity().byteValue()});
         }
         if (this.device == null || this.chatType == null) {
             throw new IllegalArgumentException("device and chatType are required for the control segment");
@@ -269,7 +283,7 @@ public class Protocol implements TypedEvent {
         int capacity = payloadBytes.length * 2;
         ByteArrayOutputStream result = new ByteArrayOutputStream(capacity);
         //一个字节
-        result.write(wireEventType.getIdentity());
+        result.write(wireProtocolType.getIdentity());
         result.writeBytes(ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN)
                 .put(this.device.getIdentity().byteValue())
                 .put(this.chatType.getIdentity().byteValue())
@@ -349,6 +363,12 @@ public class Protocol implements TypedEvent {
         return bytes;
     }
 
+    private static void requireCompleteFrame(ByteBuffer source) {
+        if (source.hasRemaining()) {
+            throw new IllegalArgumentException("Unexpected bytes after the complete protocol frame: " + source.remaining());
+        }
+    }
+
     private static void requireRemaining(ByteBuffer source, int length, String field) {
         if (length < 0 || length > source.remaining()) {
             throw new IllegalArgumentException("Invalid " + field + " length: " + length
@@ -362,16 +382,23 @@ public class Protocol implements TypedEvent {
      */
     public static Protocol pong() {
         Protocol pong = new Protocol();
-        pong.eventType = DefaultEventType.PONG;
+        pong.protocolType = DefaultProtocolType.PONG;
         return pong;
     }
 
     public Protocol ack() {
         Protocol ack = clone();
         ack.serverTime = System.currentTimeMillis();
-        ack.eventType = DefaultEventType.ACK;
+        ack.protocolType = DefaultProtocolType.ACK;
         return ack;
     }
+
+    public Protocol offline() {
+        Protocol offline = new Protocol();
+        offline.protocolType = DefaultProtocolType.OFFLINE;
+        return offline;
+    }
+
 
     /**
      * 浅拷贝所有字段；发送者、接收者和会话对象与原消息共享。
@@ -381,7 +408,7 @@ public class Protocol implements TypedEvent {
         clone.device = this.device;
         clone.messageType = this.messageType;
         clone.chatType = this.chatType;
-        clone.eventType = this.eventType;
+        clone.protocolType = this.protocolType;
         clone.sessionLength = this.sessionLength;
         clone.sender = this.sender;
         clone.receiver = this.receiver;
@@ -389,6 +416,7 @@ public class Protocol implements TypedEvent {
         clone.payload = this.payload;
         clone.clientSendTime = this.clientSendTime;
         clone.serverTime = this.serverTime;
+        clone.loginUser = this.loginUser;
         return clone;
     }
 }

@@ -18,9 +18,9 @@ limitations under the License.
 package com.sparrow.messaging.messaging.example.typed.routing;
 
 import com.sparrow.messaging.messaging.example.typed.ExampleMessageType;
-import com.sparrow.messaging.protocol.EventType;
+import com.sparrow.messaging.protocol.ProtocolType;
 import com.sparrow.messaging.protocol.TypedEvent;
-import com.sparrow.messaging.protocol.enums.DefaultEventType;
+import com.sparrow.messaging.protocol.enums.DefaultProtocolType;
 
 public record RoutedMessage(String text, String routingKey) implements TypedEvent {
     public RoutedMessage(String text) {
@@ -38,7 +38,7 @@ public record RoutedMessage(String text, String routingKey) implements TypedEven
     }
 
     @Override
-    public EventType getEventType() {
-        return DefaultEventType.IM;
+    public ProtocolType getProtocolType() {
+        return DefaultProtocolType.IM;
     }
 }

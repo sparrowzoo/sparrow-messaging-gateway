@@ -19,7 +19,7 @@ package com.sparrow.messaging.messaging.example.typed.event.ping;
 
 import com.sparrow.messaging.messaging.example.typed.event.EventExampleClient;
 import com.sparrow.messaging.protocol.Protocol;
-import com.sparrow.messaging.protocol.enums.DefaultEventType;
+import com.sparrow.messaging.protocol.enums.DefaultProtocolType;
 import com.sparrow.messaging.starter.EnableMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,14 +35,14 @@ public class PingExampleApplication {
     public static void main(String[] args) throws Throwable {
         try (var context = SpringApplication.run(PingExampleApplication.class, args)) {
             Protocol pong = sendPing(context);
-            logger.info("发送 PING，收到 eventType={}", pong.getEventType());
+            logger.info("发送 PING，收到 protocolType={}", pong.getProtocolType());
         }
     }
 
     public static Protocol sendPing(ApplicationContext context) throws Throwable {
         try (var client = new EventExampleClient(context)) {
             Protocol ping = new Protocol();
-            ping.setEventType(DefaultEventType.PING);
+            ping.setProtocolType(DefaultProtocolType.PING);
             return client.send(ping);
         }
     }

@@ -26,10 +26,10 @@ import com.sparrow.messaging.domain.service.MultiDeviceConnectionRegistry;
 import com.sparrow.messaging.domain.service.pub.sub.typed.TypedPublishStrategy;
 import com.sparrow.messaging.protocol.enums.ChatType;
 import com.sparrow.messaging.domain.service.pub.sub.typed.mapping.TypedPubSubMappingContainer;
-import com.sparrow.messaging.protocol.EventType;
+import com.sparrow.messaging.protocol.ProtocolType;
 import com.sparrow.messaging.protocol.Protocol;
 import com.sparrow.messaging.protocol.api.TypedSubscriber;
-import com.sparrow.messaging.protocol.enums.DefaultEventType;
+import com.sparrow.messaging.protocol.enums.DefaultProtocolType;
 import com.sparrow.protocol.enums.DeviceType;
 import com.sparrow.utility.ClassUtility;
 import io.netty.buffer.Unpooled;
@@ -45,7 +45,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class WebSocketGatewayTest {
     @Test
-    void unsupportedEventClosesTheConnectionWithoutNullPointer() throws Exception {
+    void unsupportedEventReportsErrorAndKeepsConnection() throws Exception {
         var directory = new MultiDeviceConnectionRegistry();
         var channel = new EmbeddedChannel(new WebSocketGateway());
         try (var bindings = new Bindings()) {
@@ -57,7 +57,9 @@ class WebSocketGatewayTest {
             directory.register(new NettyWebsocketConnection(channel, user));
             assertDoesNotThrow(() -> channel.writeInbound(new BinaryWebSocketFrame(
                     Unpooled.wrappedBuffer(new byte[]{40}))));
-            assertFalse(channel.isActive());
+            channel.runPendingTasks();
+            assertTrue(channel.isActive());
+            assertErrorResponse(channel);
         } finally {
             channel.finishAndReleaseAll();
         }
@@ -69,7 +71,7 @@ class WebSocketGatewayTest {
         var mappings = new TypedPubSubMappingContainer();
         var delivered = new AtomicInteger();
         mappings.put(new TypedSubscriber<Protocol>() {
-            public EventType getEventType() { return DefaultEventType.PING; }
+            public ProtocolType getProtocolType() { return DefaultProtocolType.PING; }
             public void subscribe(Protocol event) { delivered.incrementAndGet(); }
         });
         var staleChannel = new EmbeddedChannel(new WebSocketGateway());
@@ -100,30 +102,188 @@ class WebSocketGatewayTest {
     }
 
     @Test
-    void malformedFrameAndBusinessFailureCloseWithoutAcknowledging() throws Exception {
-        for (boolean malformed : new boolean[]{true, false}) {
+    void malformedFrameClosesWithoutAcknowledging() throws Exception {
+        var directory = new MultiDeviceConnectionRegistry();
+        var channel = new EmbeddedChannel(new WebSocketGateway());
+        try (var bindings = new Bindings()) {
+            bindConnection(bindings, directory, channel);
+            bindings.bind(TypedPubSubMappingContainer.class, new TypedPubSubMappingContainer());
+            channel.writeInbound(new BinaryWebSocketFrame(Unpooled.wrappedBuffer(new byte[]{0})));
+            assertFalse(channel.isActive());
+            assertNull(channel.readOutbound());
+        } finally {
+            channel.finishAndReleaseAll();
+        }
+    }
+
+    @Test
+    void businessFailureReportsErrorAndAllowsTheNextMessage() throws Exception {
+        for (Throwable failure : new Throwable[]{new IllegalStateException("business failed"),
+                new IllegalArgumentException("business argument invalid"), new Exception("publish failed")}) {
             var directory = new MultiDeviceConnectionRegistry();
             var channel = new EmbeddedChannel(new WebSocketGateway());
+            var receipts = new AtomicInteger();
+            var mappings = new TypedPubSubMappingContainer();
+            mappings.put(new TypedSubscriber<Protocol>() {
+                public ProtocolType getProtocolType() { return DefaultProtocolType.IM; }
+                public void subscribe(Protocol event) { receipts.incrementAndGet(); }
+            });
+            mappings.put(new TypedSubscriber<Protocol>() {
+                public ProtocolType getProtocolType() { return DefaultProtocolType.PING; }
+                public void subscribe(Protocol event) { receipts.incrementAndGet(); }
+            });
             try (var bindings = new Bindings()) {
-                bindings.bind(ConfigReader.class, new SparrowConfigReader());
-                bindings.bind(ConnectionRegistry.class, directory);
-                bindings.bind(TypedPubSubMappingContainer.class, new TypedPubSubMappingContainer());
+                bindConnection(bindings, directory, channel);
+                bindings.bind(TypedPubSubMappingContainer.class, mappings);
                 bindings.bind(TypedPublishStrategy.class, new TypedPublishStrategy() {
-                    public void publish(com.sparrow.messaging.protocol.TypedEvent event) {
-                        throw new IllegalStateException("business failed");
+                    public void publish(com.sparrow.messaging.protocol.TypedEvent event) throws Throwable {
+                        throw failure;
                     }
                 });
-                var user = new DefaultLoginUser();user.setUserId(1L);user.setCategory(1);user.setDeviceType(DeviceType.PC);
-                directory.register(new NettyWebsocketConnection(channel, user));
-                var message = new Protocol();message.setEventType(DefaultEventType.IM);
-                message.setDevice(DeviceType.PC);message.setChatType(ChatType.ONE_2_ONE);message.setClientSendTime(1L);
-                message.setSender(com.sparrow.messaging.protocol.ChatUser.longUserId(1L, 1));
-                message.setReceiver(com.sparrow.messaging.protocol.ChatUser.longUserId(2L, 1));
-                var frame = malformed ? Unpooled.wrappedBuffer(new byte[]{0}) : Unpooled.wrappedBuffer(message.encode());
-                assertDoesNotThrow(() -> channel.writeInbound(new BinaryWebSocketFrame(frame)));
-                assertFalse(channel.isActive());
-                assertNull(channel.readOutbound(), "Rejected messages must not receive a success ACK");
-            } finally { channel.finishAndReleaseAll(); }
+                channel.writeInbound(new BinaryWebSocketFrame(Unpooled.wrappedBuffer(message().encode())));
+                channel.runPendingTasks();
+                assertTrue(channel.isActive(), "Business failures must not disconnect the client");
+                assertErrorResponse(channel);
+                channel.writeInbound(new BinaryWebSocketFrame(Unpooled.wrappedBuffer(new byte[]{30})));
+                channel.runPendingTasks();
+                assertTrue(channel.isActive());
+                assertEquals(2, receipts.get(), "Receipt processing and subsequent messages remain available");
+            } finally {
+                channel.finishAndReleaseAll();
+            }
+        }
+    }
+
+    @Test
+    void queuedReplyFailureReportsErrorAndKeepsConnection() throws Exception {
+        var directory = new MultiDeviceConnectionRegistry();
+        var channel = new EmbeddedChannel(new WebSocketGateway());
+        var mappings = new TypedPubSubMappingContainer();
+        mappings.put(new TypedSubscriber<Protocol>() {
+            public ProtocolType getProtocolType() { return DefaultProtocolType.PING; }
+            public void subscribe(Protocol event) { throw new IllegalStateException("reply failed"); }
+        });
+        try (var bindings = new Bindings()) {
+            bindConnection(bindings, directory, channel);
+            bindings.bind(TypedPubSubMappingContainer.class, mappings);
+            channel.writeInbound(new BinaryWebSocketFrame(Unpooled.wrappedBuffer(new byte[]{30})));
+            channel.runPendingTasks();
+            assertTrue(channel.isActive());
+            assertErrorResponse(channel);
+        } finally {
+            channel.finishAndReleaseAll();
+        }
+    }
+
+    @Test
+    void fatalErrorInQueuedReplyClosesConnection() throws Exception {
+        var directory = new MultiDeviceConnectionRegistry();
+        var channel = new EmbeddedChannel(new WebSocketGateway());
+        var mappings = new TypedPubSubMappingContainer();
+        var fatal = new LinkageError("fatal reply failure");
+        mappings.put(new TypedSubscriber<Protocol>() {
+            public ProtocolType getProtocolType() { return DefaultProtocolType.PING; }
+            public void subscribe(Protocol event) { throw fatal; }
+        });
+        try (var bindings = new Bindings()) {
+            bindConnection(bindings, directory, channel);
+            bindings.bind(TypedPubSubMappingContainer.class, mappings);
+            assertSame(fatal, assertThrows(LinkageError.class, () -> channel.writeInbound(
+                    new BinaryWebSocketFrame(Unpooled.wrappedBuffer(new byte[]{30})))));
+            channel.runPendingTasks();
+            assertFalse(channel.isActive());
+            assertNull(channel.readOutbound());
+        } finally {
+            channel.finishAndReleaseAll();
+        }
+    }
+
+    @Test
+    void queuedReceiptUsesTheReceivedMessageWhenPublisherChangesItsCopy() throws Exception {
+        var directory = new MultiDeviceConnectionRegistry();
+        var channel = new EmbeddedChannel(new WebSocketGateway());
+        var received = new java.util.concurrent.atomic.AtomicReference<Protocol>();
+        var mappings = new TypedPubSubMappingContainer();
+        mappings.put(new TypedSubscriber<Protocol>() {
+            public ProtocolType getProtocolType() { return DefaultProtocolType.IM; }
+            public void subscribe(Protocol event) { received.set(event); }
+        });
+        try (var bindings = new Bindings()) {
+            bindConnection(bindings, directory, channel);
+            bindings.bind(TypedPubSubMappingContainer.class, mappings);
+            bindings.bind(TypedPublishStrategy.class, new TypedPublishStrategy() {
+                public void publish(com.sparrow.messaging.protocol.TypedEvent event) {
+                    var changed = (Protocol) event;
+                    changed.setProtocolType(DefaultProtocolType.PONG);
+                    changed.setClientSendTime(999L);
+                }
+            });
+            channel.writeInbound(new BinaryWebSocketFrame(Unpooled.wrappedBuffer(message().encode())));
+            channel.runPendingTasks();
+            assertNotNull(received.get());
+            assertEquals(DefaultProtocolType.IM, received.get().getProtocolType());
+            assertEquals(1L, received.get().getClientSendTime());
+        } finally {
+            channel.finishAndReleaseAll();
+        }
+    }
+
+    @Test
+    void replacedConnectionDoesNotRunAQueuedReceipt() throws Exception {
+        var directory = new MultiDeviceConnectionRegistry();
+        var channel = new EmbeddedChannel(new WebSocketGateway());
+        var replacementChannel = new EmbeddedChannel();
+        var replies = new AtomicInteger();
+        var mappings = new TypedPubSubMappingContainer();
+        mappings.put(new TypedSubscriber<Protocol>() {
+            public ProtocolType getProtocolType() { return DefaultProtocolType.IM; }
+            public void subscribe(Protocol event) { replies.incrementAndGet(); }
+        });
+        try (var bindings = new Bindings()) {
+            bindConnection(bindings, directory, channel);
+            bindings.bind(TypedPubSubMappingContainer.class, mappings);
+            bindings.bind(TypedPublishStrategy.class, new TypedPublishStrategy() {
+                public void publish(com.sparrow.messaging.protocol.TypedEvent event) {
+                    var user = new DefaultLoginUser();
+                    user.setUserId(1L);user.setCategory(1);user.setDeviceType(DeviceType.PC);
+                    directory.register(new NettyWebsocketConnection(replacementChannel, user));
+                }
+            });
+            channel.writeInbound(new BinaryWebSocketFrame(Unpooled.wrappedBuffer(message().encode())));
+            channel.runPendingTasks();
+            assertEquals(0, replies.get(), "Queued replies must not follow a replaced connection");
+            assertFalse(channel.isActive());
+            assertTrue(replacementChannel.isActive());
+        } finally {
+            channel.finishAndReleaseAll();
+            replacementChannel.finishAndReleaseAll();
+        }
+    }
+
+    private static void bindConnection(Bindings bindings, MultiDeviceConnectionRegistry directory,
+            EmbeddedChannel channel) throws Exception {
+        bindings.bind(ConfigReader.class, new SparrowConfigReader());
+        bindings.bind(ConnectionRegistry.class, directory);
+        var user = new DefaultLoginUser();
+        user.setUserId(1L);user.setCategory(1);user.setDeviceType(DeviceType.PC);
+        directory.register(new NettyWebsocketConnection(channel, user));
+    }
+
+    private static Protocol message() {
+        var message = new Protocol();message.setProtocolType(DefaultProtocolType.IM);
+        message.setDevice(DeviceType.PC);message.setChatType(ChatType.ONE_2_ONE);message.setClientSendTime(1L);
+        message.setSender(com.sparrow.messaging.protocol.ChatUser.longUserId(1L, 1));
+        message.setReceiver(com.sparrow.messaging.protocol.ChatUser.longUserId(2L, 1));
+        return message;
+    }
+
+    private static void assertErrorResponse(EmbeddedChannel channel) {
+        BinaryWebSocketFrame response = channel.readOutbound();
+        assertNotNull(response, "A failed message must receive an error response");
+        try {
+            assertEquals(DefaultProtocolType.ERROR, new Protocol(response.content().nioBuffer()).getProtocolType());
+        } finally {
+            response.release();
         }
     }
 

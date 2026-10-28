@@ -18,26 +18,29 @@ limitations under the License.
 package com.sparrow.messaging.starter;
 
 import com.sparrow.messaging.domain.service.ConnectionRegistry;
+import com.sparrow.messaging.domain.service.pub.sub.PublishStrategy;
 import com.sparrow.messaging.domain.service.pub.sub.RoutingKeyPublisherMapping;
 import com.sparrow.messaging.domain.service.pub.sub.typed.TypedPublishStrategy;
 import com.sparrow.messaging.domain.service.pub.sub.typed.DefaultTypedPublisher;
 import com.sparrow.messaging.domain.service.pub.sub.typed.mapping.TypedPubSubMappingContainer;
 import com.sparrow.messaging.infrastructure.service.spring.AbstractSpringTypedSubscriber;
 import com.sparrow.messaging.infrastructure.service.spring.event.IMEventSubscriber;
+import com.sparrow.messaging.infrastructure.service.spring.event.AIEventSubscriber;
 import com.sparrow.messaging.infrastructure.service.spring.event.PingSubscriber;
 import com.sparrow.messaging.infrastructure.service.spring.event.UserStatusEventSubscriber;
-import com.sparrow.messaging.protocol.EventType;
+import com.sparrow.messaging.protocol.ProtocolType;
 import com.sparrow.messaging.protocol.MessageType;
 import com.sparrow.messaging.protocol.TypedEvent;
 import com.sparrow.messaging.protocol.api.TypedPublisher;
-import com.sparrow.messaging.protocol.enums.DefaultEventType;
+import com.sparrow.messaging.protocol.enums.DefaultProtocolType;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Bean;
-import org.springframework.core.env.MapPropertySource;
 
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.Map;
+import org.springframework.core.env.MapPropertySource;
 
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -47,6 +50,19 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class EnableMessageTest {
     @Test
+    void dispatchesOrdinaryEventsThroughPublishStrategy() throws Throwable {
+        var received = new AtomicInteger();
+        try (var context = new AnnotationConfigApplicationContext()) {
+            context.register(Application.class);
+            context.registerBean("ordinarySubscriber", SubscriberProxyTest.PlainSubscriber.class,
+                    () -> new SubscriberProxyTest.PlainSubscriber(received));
+            context.refresh();
+            context.getBean(PublishStrategy.class).publish(new SubscriberProxyTest.PlainEvent());
+            assertEquals(1, received.get());
+        }
+    }
+
+    @Test
     void enablesComponentsAndRegistersEventHandlers() {
         try (var context = new AnnotationConfigApplicationContext()) {
             context.register(Application.class);
@@ -55,44 +71,47 @@ class EnableMessageTest {
             assertNotNull(context.getBean(TypedPublishStrategy.class));
             assertNotNull(context.getBean(DefaultTypedPublisher.class));
             var mappings = context.getBean(TypedPubSubMappingContainer.class);
-            assertSame(context.getBean(PingSubscriber.class), mappings.getEventHandler(event(DefaultEventType.PING)));
-            assertInstanceOf(IMEventSubscriber.class, mappings.getEventHandler(event(DefaultEventType.IM)));
-            assertInstanceOf(UserStatusEventSubscriber.class, mappings.getEventHandler(event(DefaultEventType.USER_STATUS)));
+            assertSame(context.getBean(PingSubscriber.class), mappings.getImmediately(event(DefaultProtocolType.PING)));
+            assertInstanceOf(IMEventSubscriber.class, mappings.getImmediately(event(DefaultProtocolType.IM)));
+            assertInstanceOf(AIEventSubscriber.class, mappings.getImmediately(event(DefaultProtocolType.AI)));
+            assertInstanceOf(UserStatusEventSubscriber.class, mappings.getImmediately(event(DefaultProtocolType.FETCH_USER_STATUS)));
         }
     }
 
     @Test
     void dispatchesMessagesToApplicationHandler() throws Throwable {
         try (var context = new AnnotationConfigApplicationContext(Application.class)) {
-            context.getBean(TypedPublishStrategy.class).publish(event(DefaultEventType.IM));
+            context.getBean(TypedPublishStrategy.class).publish(event(DefaultProtocolType.IM));
             assertTrue(context.getBean(ApplicationHandler.class).handled);
         }
     }
 
+
     @Test
-    void mapsRoutingKeyToPublisherBeanName() throws Throwable {
+    void typedRoutingUsesConfiguredPublisherWithoutAProtocolSuffix() throws Throwable {
+        try (var context = new AnnotationConfigApplicationContext()) {
+            context.getEnvironment().getPropertySources().addFirst(new MapPropertySource("routing-test", Map.of(
+                    "sparrow.massaging.routing-publisher.mapping", "{'orders':'orderPublisher'}")));
+            context.register(Application.class);
+            context.refresh();
+            TypedEvent order = event(DefaultProtocolType.IM, "orders");
+            context.getBean(TypedPublishStrategy.class).publish(order);
+            assertSame(order, context.getBean(CapturingPublisher.class).lastEvent);
+        }
+    }
+
+    @Test
+    void protocolSpecificRoutingTakesPrecedenceOverTheBaseRoute() {
         try (var context = new AnnotationConfigApplicationContext()) {
             context.getEnvironment().getPropertySources().addFirst(new MapPropertySource("routing-test", Map.of(
                     "sparrow.massaging.routing-publisher.mapping",
-                    "{'default':'defaultTypedPublisher','orders':'orderPublisher'}")));
+                    "{'orders':'sharedPublisher','orders_IM':'orderPublisher'}")));
             context.register(Application.class);
             context.refresh();
             var mapping = context.getBean(RoutingKeyPublisherMapping.class);
-            assertEquals("defaultTypedPublisher", mapping.getPublisherKey("default"));
-            assertEquals("orderPublisher", mapping.getPublisherKey("orders"));
-            assertEquals("unmapped", mapping.getPublisherKey("unmapped"));
-            TypedEvent order = event(DefaultEventType.IM, "orders");
-            context.getBean(TypedPublishStrategy.class).publish(order);
-            assertSame(order, context.getBean(CapturingPublisher.class).lastEvent);
-            context.getBean(TypedPublishStrategy.class).publish(event(DefaultEventType.IM));
-            assertTrue(context.getBean(ApplicationHandler.class).handled);
-        }
-    }
-
-    @Test
-    void keepsRoutingKeyWhenMappingIsNotConfigured() {
-        try (var context = new AnnotationConfigApplicationContext(Application.class)) {
-            assertEquals("orders", context.getBean(RoutingKeyPublisherMapping.class).getPublisherKey("orders"));
+            assertEquals("orderPublisher", mapping.getPublisherKey(event(DefaultProtocolType.IM, "orders")));
+            assertEquals("sharedPublisher", mapping.getPublisherKey(event(DefaultProtocolType.AI, "orders")));
+            assertEquals("unmapped", mapping.getPublisherKey(event(DefaultProtocolType.IM, "unmapped")));
         }
     }
 
@@ -123,13 +142,18 @@ class EnableMessageTest {
         private boolean handled;
 
         @Override
-        public EventType getEventType() {
-            return DefaultEventType.IM;
+        public ProtocolType getProtocolType() {
+            return DefaultProtocolType.IM;
         }
 
         @Override
         public void subscribe(TypedEvent event) {
             this.handled = true;
+        }
+
+        @Override
+        public Boolean localImmediately() {
+            return false;
         }
 
         @Override
@@ -147,11 +171,11 @@ class EnableMessageTest {
         }
     }
 
-    private static TypedEvent event(EventType type) {
+    private static TypedEvent event(ProtocolType type) {
         return event(type, "default");
     }
 
-    private static TypedEvent event(EventType type, String routingKey) {
+    private static TypedEvent event(ProtocolType type, String routingKey) {
         return new TypedEvent() {
             @Override
             public String getRoutingKey() {
@@ -164,7 +188,7 @@ class EnableMessageTest {
             }
 
             @Override
-            public EventType getEventType() {
+            public ProtocolType getProtocolType() {
                 return type;
             }
         };

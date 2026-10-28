@@ -24,8 +24,8 @@ public interface EventTypedHandlerMappingContainer {
 
     void put(TypedSubscriber handler);
 
-    TypedSubscriber getEventHandler(TypedEvent type);
+    TypedSubscriber getImmediately(TypedEvent type);
 
-    TypedSubscriber getMessageHandler(TypedEvent type);
+    TypedSubscriber get(TypedEvent type);
 
 }

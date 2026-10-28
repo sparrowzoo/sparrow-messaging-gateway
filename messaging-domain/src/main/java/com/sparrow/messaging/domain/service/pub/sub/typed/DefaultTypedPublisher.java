@@ -19,23 +19,22 @@ package com.sparrow.messaging.domain.service.pub.sub.typed;
 
 import com.sparrow.messaging.domain.service.pub.sub.typed.mapping.TypedPubSubMappingContainer;
 import com.sparrow.messaging.protocol.TypedEvent;
+import com.sparrow.messaging.protocol.api.TypedPublisher;
 import jakarta.inject.Inject;
-import jakarta.inject.Named;
 import lombok.extern.slf4j.Slf4j;
 
-@Named("defaultTypedPublisher")
 @Slf4j
-public class DefaultTypedPublisher implements com.sparrow.messaging.protocol.api.TypedPublisher {
+public class DefaultTypedPublisher implements TypedPublisher {
 
     @Inject
     private TypedPubSubMappingContainer typedPubSubMappingContainer;
 
     @Override
     public void publish(TypedEvent event) throws Throwable {
-        var handler = this.typedPubSubMappingContainer.getMessageHandler(event);
+        var handler = this.typedPubSubMappingContainer.get(event);
         if (handler == null) {
             throw new IllegalStateException("No handler for message type " + Short.toUnsignedInt(event.getMessageType())
-                    + ", event type " + event.getEventType());
+                    + ", protocol type " + event.getProtocolType());
         }
         handler.subscribe(event);
     }
