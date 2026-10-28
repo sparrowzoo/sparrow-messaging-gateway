@@ -2,7 +2,7 @@ package com.sparrow.rocketmq.impl;
 
 import com.sparrow.messaging.protocol.Event;
 import com.sparrow.messaging.rocketmq.MessageConverter;
-import com.sparrow.pub.sub.MQMessageSendException;
+import com.sparrow.messaging.protocol.api.queue.MQMessageSendException;
 import org.apache.rocketmq.client.producer.MQProducer;
 import org.apache.rocketmq.client.producer.SendResult;
 import org.apache.rocketmq.client.producer.SendStatus;

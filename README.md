@@ -59,7 +59,7 @@ flowchart TD
 
 ## 构建和测试
 
-需要 JDK 25+、Maven 3.8.6+，以及本地或内部仓库中的 Sparrow `1.0.0-SNAPSHOT` 依赖，包括父 POM、`infra-bom`、`sparrow-protocol`、`authenticator-core` 等传递依赖。
+需要 JDK 21+、Maven 3.8.6+，以及本地或内部仓库中的 Sparrow `1.0.0-SNAPSHOT` 依赖，包括父 POM、`infra-bom`、`sparrow-protocol`、`authenticator-core` 等传递依赖。
 
 代码检查沿用 Sparrow 父项目规则。`SPARROW_STYLE_DIR` 应指向包含 `sparrow_checkstyle.xml` 和 `check_style_suppressions.xml` 的目录。
 

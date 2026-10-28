@@ -53,7 +53,7 @@ public class TypedPubSubMappingContainer implements EventTypedHandlerMappingCont
             if (messageType == null) {
                 this.localSubscriberMapping.put(protocolType, handler);
             } else {
-                this.localSubscriberMapping2.computeIfAbsent(protocolType, _ -> new HashMap<>());
+                this.localSubscriberMapping2.computeIfAbsent(protocolType, ignored -> new HashMap<>());
                 this.localSubscriberMapping2.get(protocolType).put(messageType.getIdentity().shortValue(), handler);
             }
             return;

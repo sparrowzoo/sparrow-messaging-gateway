@@ -22,7 +22,7 @@ import com.sparrow.container.ContainerAware;
 import com.sparrow.lang.joiner.StringJoiner;
 import com.sparrow.protocol.Pair;
 import com.sparrow.protocol.constant.magic.Symbol;
-import com.sparrow.pub.sub.MQClient;
+import com.sparrow.messaging.protocol.api.queue.MQClient;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.client.consumer.DefaultMQPushConsumer;
 import org.apache.rocketmq.client.consumer.MQPushConsumer;
