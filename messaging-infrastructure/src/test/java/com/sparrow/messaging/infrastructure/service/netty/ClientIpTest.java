@@ -32,6 +32,7 @@ limitations under the License.
  */
 package com.sparrow.messaging.infrastructure.service.netty;
 
+import com.sparrow.utility.ClientIpResolver;
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.handler.codec.http.DefaultHttpHeaders;
 import io.netty.handler.codec.http.websocketx.WebSocketServerProtocolHandler;
@@ -99,12 +100,12 @@ class ClientIpTest {
     @Test
     void invalidProxyConfigurationFailsBeforeOpeningAServer() {
         assertThrows(IllegalArgumentException.class,
-                () -> WebSocketServerProtocolSupportHandshake.parseTrustedProxies("localhost"));
+                () -> ClientIpResolver.parseTrustedProxies("localhost"));
         assertThrows(IllegalArgumentException.class,
-                () -> WebSocketServerProtocolSupportHandshake.parseTrustedProxies("10.0.0.0/8"));
+                () -> ClientIpResolver.parseTrustedProxies("10.0.0.0/8"));
         assertThrows(IllegalArgumentException.class,
-                () -> WebSocketServerProtocolSupportHandshake.parseTrustedProxies("10.0.0.1,"));
-        assertTrue(WebSocketServerProtocolSupportHandshake.parseTrustedProxies("").isEmpty());
+                () -> ClientIpResolver.parseTrustedProxies("10.0.0.1,"));
+        assertTrue(ClientIpResolver.parseTrustedProxies("").isEmpty());
     }
 
     @Test
@@ -115,7 +116,7 @@ class ClientIpTest {
                     .add("X-Forwarded-For", "198.51.100.7");
             var request = new WebSocketServerProtocolHandler.HandshakeComplete("/websocket", headers, null);
             var handler = new WebSocketServerProtocolSupportHandshake("/websocket", 655360,
-                    WebSocketServerProtocolSupportHandshake.parseTrustedProxies("10.0.0.1"));
+                    ClientIpResolver.parseTrustedProxies("10.0.0.1"));
             assertEquals("198.51.100.7", handler.getClientIp(request, channel));
         } finally { channel.finishAndReleaseAll(); }
     }
@@ -128,7 +129,7 @@ class ClientIpTest {
                     .add("X-Real-IP", "198.51.100.7");
             var request = new WebSocketServerProtocolHandler.HandshakeComplete("/websocket", headers, null);
             var handler = new WebSocketServerProtocolSupportHandshake("/websocket", 655360,
-                    WebSocketServerProtocolSupportHandshake.parseTrustedProxies("10.0.0.1"));
+                    ClientIpResolver.parseTrustedProxies("10.0.0.1"));
             assertEquals("10.0.0.1", handler.getClientIp(request, channel));
         } finally { channel.finishAndReleaseAll(); }
     }
@@ -141,7 +142,7 @@ class ClientIpTest {
             if (real != null) { headers.set("X-Real-IP", real); }
             var request = new WebSocketServerProtocolHandler.HandshakeComplete("/websocket", headers, null);
             var handler = new WebSocketServerProtocolSupportHandshake("/websocket", 655360,
-                    WebSocketServerProtocolSupportHandshake.parseTrustedProxies(proxies));
+                    ClientIpResolver.parseTrustedProxies(proxies));
             return handler.getClientIp(request, channel);
         } finally { channel.finishAndReleaseAll(); }
     }

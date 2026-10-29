@@ -32,6 +32,7 @@ limitations under the License.
  */
 package com.sparrow.messaging.infrastructure.service.netty;
 
+import com.sparrow.utility.ClientIpResolver;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.socket.SocketChannel;
@@ -53,8 +54,7 @@ public class WebSocketServerInitializer extends ChannelInitializer<SocketChannel
 
     public WebSocketServerInitializer(SslContext sslCtx) {
         this.sslCtx = sslCtx;
-        this.trustedProxies = WebSocketServerProtocolSupportHandshake.parseTrustedProxies(
-                System.getProperty("sparrow.messaging.websocket.trusted-proxies", ""));
+        this.trustedProxies = ClientIpResolver.configuredTrustedProxies();
     }
 
     @Override

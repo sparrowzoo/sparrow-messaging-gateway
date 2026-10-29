@@ -246,13 +246,17 @@ sequenceDiagram
 
 ### 客户端来源 IP
 
+HTTP 和 WebSocket 共用 `ClientIpResolver` 和同一项 JVM 配置，不需要 Servlet 上下文。配置在入口创建时读取，修改后需重启服务。旧的 WebSocket 专用配置已移除。
+
 默认只使用实际 socket 来源，忽略客户端自行填写的 `X-Real-IP` 和 `X-Forwarded-For`。
 
 只有确实经过反向代理时，才配置允许提供来源头的代理 IP，例如：
 
 ```text
--Dsparrow.messaging.websocket.trusted-proxies=127.0.0.1,10.0.0.10
+-Dsparrow.client-ip.trusted-proxies=127.0.0.1,10.0.0.10
 ```
+
+HTTP 服务与 WebSocket 服务若分开运行，两个进程都需要设置上述配置，并使用各自实际直连的可信代理地址。
 
 列表只接受逗号分隔的字面 IPv4/IPv6 地址，不接受主机名或 CIDR，不默认信任整个私网或环回网段。
 
