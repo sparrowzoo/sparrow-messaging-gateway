@@ -24,12 +24,14 @@ import lombok.NoArgsConstructor;
 
 /**
  * 同一对单聊参与者，无论发送方向如何，都使用同一个会话 key。
- * 沿用既有 key 格式：类别各占一位，较大用户 ID 的字符长度占两位。
- * 因此单聊类别限 0–9，双方 ID 的 String.length() 限 1–99；超出时明确拒绝，不截断。
+ * key 格式：聊天类型一位 + 用户类别各一位 + 较大用户 ID 的字符长度一位 + 双方用户 ID。
+ * 类型、类别和长度统一使用 0-9A-Za-z；单聊类别限 0–61，双方 ID 的 String.length() 限 1–61。
+ * 与前端使用相同字符表和排序规则；超出范围明确拒绝，不截断。
  */
 @Data
 @NoArgsConstructor
 public class ChatSession {
+    private static final String BASE62_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
 
     public static ChatSession createSession(Integer chatType, String id) {
@@ -56,7 +58,13 @@ public class ChatSession {
 
 
     public String key() {
-        return chatType + id;
+        if (this.chatType < 0 || this.chatType >= BASE62_CHARS.length()) {
+            throw new IllegalArgumentException("Session chat type must be between 0 and 61");
+        }
+        if (this.id == null || this.id.isEmpty()) {
+            throw new IllegalArgumentException("Session ID must not be empty");
+        }
+        return BASE62_CHARS.charAt(this.chatType) + this.id;
     }
 
     public boolean isOne2One() {
@@ -76,20 +84,18 @@ public class ChatSession {
             bigUser = receiver;
             smallUser = sender;
         }
-        int length = bigUser.getId().length();
-        String len = String.valueOf(length);
-        if (len.length() == 1) {
-            len = "0" + len;
-        }
-        return bigUser.getSessionCategory() + "" + smallUser.getSessionCategory() + "" + len + "" + bigUser.getId() + smallUser.getId();
+        char bigCategory = BASE62_CHARS.charAt(bigUser.getSessionCategory());
+        char smallCategory = BASE62_CHARS.charAt(smallUser.getSessionCategory());
+        char length = BASE62_CHARS.charAt(bigUser.getId().length());
+        return "" + bigCategory + smallCategory + length + bigUser.getId() + smallUser.getId();
     }
 
     static void validateOneToOneUser(ChatUser user) {
-        if (user == null || user.getId() == null || user.getId().isEmpty() || user.getId().length() > 99) {
-            throw new IllegalArgumentException("Single-chat user ID must contain 1–99 characters");
+        if (user == null || user.getId() == null || user.getId().isEmpty() || user.getId().length() >= BASE62_CHARS.length()) {
+            throw new IllegalArgumentException("Single-chat user ID must contain 1–61 characters");
         }
-        if (user.getCategory() == null || user.getCategory() < 0 || user.getCategory() > 9) {
-            throw new IllegalArgumentException("Single-chat user category must be between 0 and 9");
+        if (user.getCategory() == null || user.getCategory() < 0 || user.getCategory() >= BASE62_CHARS.length()) {
+            throw new IllegalArgumentException("Single-chat user category must be between 0 and 61");
         }
     }
 
@@ -97,7 +103,10 @@ public class ChatSession {
         if (sessionKey == null || sessionKey.isEmpty()) {
             return null;
         }
-        int chatType = Integer.parseInt(sessionKey.substring(0, 1));
+        int chatType = decodeBase62(sessionKey.charAt(0));
+        if (sessionKey.length() < 2) {
+            throw new IllegalArgumentException("Session ID must not be empty");
+        }
         String id = sessionKey.substring(1);
         return ChatSession.createSession(chatType, id);
     }
@@ -107,28 +116,31 @@ public class ChatSession {
             return null;
         }
 
-        if (this.id == null || this.id.length() < 6) {
+        if (this.id == null || this.id.length() < 5) {
             throw new IllegalArgumentException("Invalid single-chat session key");
         }
-        for (int i = 0; i < 4; i++) {
-            if (this.id.charAt(i) < '0' || this.id.charAt(i) > '9') {
-                throw new IllegalArgumentException("Single-chat category and ID length must be decimal digits");
-            }
-        }
-        String bigUserCategory = this.id.substring(0, 1);
-        String smallUserCategory = this.id.substring(1, 2);
-        int bitUserLength = Integer.parseInt(this.id.substring(2, 4));
-        if (bitUserLength == 0 || 4 + bitUserLength >= this.id.length()) {
+        int bigUserCategory = decodeBase62(this.id.charAt(0));
+        int smallUserCategory = decodeBase62(this.id.charAt(1));
+        int bigUserLength = decodeBase62(this.id.charAt(2));
+        if (bigUserLength == 0 || 3 + bigUserLength >= this.id.length()) {
             throw new IllegalArgumentException("Invalid single-chat user ID length");
         }
-        String bigUserId = this.id.substring(4, 4 + bitUserLength);
-        String smallUserId = this.id.substring(4 + bitUserLength);
+        String bigUserId = this.id.substring(3, 3 + bigUserLength);
+        String smallUserId = this.id.substring(3 + bigUserLength);
 
-        ChatUser bigUser = ChatUser.stringUserId(bigUserId, Integer.valueOf(bigUserCategory));
-        ChatUser smallUser = ChatUser.stringUserId(smallUserId, Integer.valueOf(smallUserCategory));
+        ChatUser bigUser = ChatUser.stringUserId(bigUserId, bigUserCategory);
+        ChatUser smallUser = ChatUser.stringUserId(smallUserId, smallUserCategory);
         validateOneToOneUser(bigUser);
         validateOneToOneUser(smallUser);
         return new Pair<>(bigUser, smallUser);
+    }
+
+    private static int decodeBase62(char value) {
+        int decoded = BASE62_CHARS.indexOf(value);
+        if (decoded < 0) {
+            throw new IllegalArgumentException("Session fields must be Base62 characters");
+        }
+        return decoded;
     }
 
     public ChatUser getOppositeUser(ChatUser currentUser) {

@@ -50,24 +50,24 @@ class ProtocolValidationTest {
 
     @Test
     void singleChatUnsupportedIdentityIsRejectedByEncoderAndDecoder() {
-        assertThrows(IllegalArgumentException.class, () -> message(ChatUser.stringUserId("1", 12)).encode());
-        assertThrows(IllegalArgumentException.class, () -> message(ChatUser.stringUserId("9".repeat(100), 1)).encode());
+        assertThrows(IllegalArgumentException.class, () -> message(ChatUser.stringUserId("1", 62)).encode());
+        assertThrows(IllegalArgumentException.class, () -> message(ChatUser.stringUserId("9".repeat(62), 1)).encode());
         var encoded = message(ChatUser.stringUserId("1", 1)).encode();
         var bytes = new byte[encoded.remaining()];encoded.get(bytes);
-        bytes[bytes.length - 4] = 12;
+        bytes[bytes.length - 4] = 62;
         assertThrows(IllegalArgumentException.class, () -> new Protocol(bytes));
     }
 
     @Test
     void settingBothParticipantsBuildsTheSameSessionRegardlessOfSetterOrder() {
         var message = message(ChatUser.stringUserId("1", 1));
-        assertEquals("0110121", message.getChatSession().key());
+        assertEquals("011121", message.getChatSession().key());
         var reverse = new Protocol();
         reverse.setReceiver(ChatUser.stringUserId("2", 1));
         reverse.setSender(ChatUser.stringUserId("1", 1));
         reverse.setChatType(ChatType.ONE_2_ONE);
         assertNotNull(reverse.getChatSession());
-        assertEquals("0110121", reverse.getChatSession().key());
+        assertEquals("011121", reverse.getChatSession().key());
     }
 
     @Test
@@ -92,5 +92,18 @@ class ProtocolValidationTest {
         var message = timedAck();message.setProtocolType(DefaultProtocolType.IM);
         message.setSender(sender);message.setReceiver(ChatUser.stringUserId("2", 1));
         return message;
+    }
+
+    @Test
+    void letterCategoriesSurviveTheWireAndMatchFrontendSessionKey() {
+        ChatUser sender = ChatUser.stringUserId("1", 10);
+        ChatUser receiver = ChatUser.stringUserId("z", 61);
+        Protocol message = message(sender);
+        message.setReceiver(receiver);
+        assertEquals("0zA1z1", message.getChatSession().key());
+        Protocol decoded = new Protocol(message.encode());
+        assertEquals("0zA1z1", decoded.getChatSession().key());
+        assertEquals(receiver, decoded.getChatSession().getOppositeUser(sender));
+        assertEquals(message.encode(), decoded.encode());
     }
 }

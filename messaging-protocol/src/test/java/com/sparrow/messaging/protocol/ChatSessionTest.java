@@ -47,17 +47,17 @@ class ChatSessionTest {
     }
 
     @Test
-    void existingNumericSessionKeyFormatIsPreserved() {
-        assertEquals("0110121", ChatSession.create1To1Session(first, second).key());
+    void compactNumericSessionKeyMatchesFrontend() {
+        assertEquals("011121", ChatSession.create1To1Session(first, second).key());
     }
 
     @Test
-    void oldSessionFormatRejectsUnrepresentableUsers() {
+    void base62SessionFormatRejectsUnrepresentableUsers() {
         assertThrows(IllegalArgumentException.class, () ->
-                ChatSession.create1To1Session(ChatUser.stringUserId("1", 12), second));
+                ChatSession.create1To1Session(ChatUser.stringUserId("1", 62), second));
         assertThrows(IllegalArgumentException.class, () ->
-                ChatSession.create1To1Session(ChatUser.stringUserId("9".repeat(100), 1), second));
-        var boundary = ChatUser.stringUserId("9".repeat(99), 9);
+                ChatSession.create1To1Session(ChatUser.stringUserId("9".repeat(62), 1), second));
+        var boundary = ChatUser.stringUserId("9".repeat(61), 61);
         assertTrue(ChatSession.create1To1Session(boundary, second).isOne2OneMember(boundary));
     }
 
@@ -71,5 +71,78 @@ class ChatSessionTest {
         var group = ChatSession.createSession(ChatType.GROUP.getIdentity(), "group");
         assertFalse(group.isOne2OneMember(first));
         assertNull(group.getOppositeUser(first));
+    }
+
+    @Test
+    void allBase62ChatTypesMatchFrontendKeys() {
+        String alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+        for (int type = 0; type < alphabet.length(); type++) {
+            String key = alphabet.charAt(type) + "group";
+            ChatSession session = ChatSession.createSession(type, "group");
+            assertEquals(key, session.key());
+            ChatSession parsed = ChatSession.parse(key);
+            assertEquals(type, parsed.getChatType());
+            assertEquals("group", parsed.getId());
+            assertEquals(key, parsed.key());
+        }
+    }
+
+    @Test
+    void allBase62UserCategoriesMatchFrontendKeysInBothPositions() {
+        String alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+        for (int category = 0; category < alphabet.length(); category++) {
+            ChatUser big = ChatUser.stringUserId("z", category);
+            ChatUser small = ChatUser.stringUserId("1", category);
+            String key = "0" + alphabet.charAt(category) + alphabet.charAt(category) + "1z1";
+            assertEquals(key, ChatSession.create1To1Session(big, small).key());
+            assertEquals(key, ChatSession.create1To1Session(small, big).key());
+            ChatSession parsed = ChatSession.parse(key);
+            assertEquals(big, parsed.get1To1Members().getFirst());
+            assertEquals(small, parsed.get1To1Members().getSecond());
+            assertEquals(small, parsed.getOppositeUser(big));
+        }
+    }
+
+    @Test
+    void everyUserIdLengthUsesOneBase62Character() {
+        String alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+        for (int length = 1; length <= 61; length++) {
+            ChatUser big = ChatUser.stringUserId("z".repeat(length), 9);
+            ChatUser small = ChatUser.stringUserId("1", 0);
+            String key = "090" + alphabet.charAt(length) + big.getId() + "1";
+            assertEquals(key, ChatSession.create1To1Session(big, small).key());
+            assertEquals(big, ChatSession.parse(key).get1To1Members().getFirst());
+            assertEquals(small, ChatSession.parse(key).get1To1Members().getSecond());
+        }
+    }
+
+    @Test
+    void uppercaseAndLowercaseCategoriesSortNumericallyForEqualIds() {
+        ChatUser upper = ChatUser.stringUserId("same", 35);
+        ChatUser lower = ChatUser.stringUserId("same", 36);
+        assertEquals("0aZ4samesame", ChatSession.create1To1Session(upper, lower).key());
+        assertEquals("0aZ4samesame", ChatSession.create1To1Session(lower, upper).key());
+        assertEquals(lower, ChatSession.parse("0aZ4samesame").get1To1Members().getFirst());
+    }
+
+    @Test
+    void malformedBase62FieldsAreRejected() {
+        for (String key : new String[]{"-group", "_group", ":group", " group", "群group", "A", "0"}) {
+            assertThrows(IllegalArgumentException.class, () -> ChatSession.parse(key), key);
+        }
+        for (String id : new String[]{"", "111x", "110ab", "11-ab", "11_ab", "11:ab",
+                "-11ab", "1_1ab", "_11ab", "1-1ab", "112ab", "111a", "111a" + "b".repeat(62)}) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> ChatSession.createSession(0, id).get1To1Members(), id);
+        }
+        for (int category : new int[]{-1, 62}) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> ChatSession.create1To1Session(ChatUser.stringUserId("1", category), second));
+            assertThrows(IllegalArgumentException.class,
+                    () -> ChatSession.createSession(category, "group").key());
+        }
+        assertNull(ChatSession.parse(null));
+        assertNull(ChatSession.parse(""));
+        assertThrows(IllegalArgumentException.class, () -> ChatSession.createSession(1, "").key());
     }
 }
