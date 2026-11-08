@@ -37,9 +37,6 @@ public enum DefaultProtocolType implements ProtocolType {
     MESSAGE_DEAL(28, ProtocolSegmentIndex.TIME_SEGMENT, TransmissionDirection.DOWNLINK, false, true),
     //用户已读
     READ(20, ProtocolSegmentIndex.TIME_SEGMENT, TransmissionDirection.UPLINK, false, true),
-    //因为浏览器不一定支持PING PONG websocket 协议，需要自定义实现
-    PING(30, ProtocolSegmentIndex.PROTOCOL_SEGMENT, TransmissionDirection.UPLINK, false, true),
-    PONG(40, ProtocolSegmentIndex.PROTOCOL_SEGMENT, TransmissionDirection.DOWNLINK, false, true),
     FETCH_USER_STATUS(45, ProtocolSegmentIndex.PROTOCOL_SEGMENT, TransmissionDirection.UPLINK, false, true),
     //监控联系人状态
     SEND_USER_STATUS(50, ProtocolSegmentIndex.CONTENT_SEGMENT, TransmissionDirection.DOWNLINK, false, true),

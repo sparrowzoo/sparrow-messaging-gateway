@@ -24,6 +24,12 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class ProtocolValidationTest {
     @Test
+    void removedApplicationHeartbeatsAreRejected() {
+        assertThrows(IllegalArgumentException.class, () -> new Protocol(new byte[]{30}));
+        assertThrows(IllegalArgumentException.class, () -> new Protocol(new byte[]{40}));
+    }
+
+    @Test
     void missingRequiredTimestampHasAnExplicitError() {
         var ack = new Protocol();
         ack.setProtocolType(DefaultProtocolType.ACK);
@@ -35,7 +41,7 @@ class ProtocolValidationTest {
 
     @Test
     void eventOnlyAndContentOnlyMessagesDoNotRequireTimestamp() {
-        assertDoesNotThrow(() -> Protocol.pong().encode());
+        assertDoesNotThrow(() -> new Protocol().offline().encode());
         var status = new Protocol();status.setProtocolType(DefaultProtocolType.SEND_USER_STATUS);
         status.setDevice(DeviceType.PC);status.setChatType(ChatType.ONE_2_ONE);
         assertDoesNotThrow(status::encode);
@@ -74,7 +80,7 @@ class ProtocolValidationTest {
     void extraBytesAfterACompleteFrameAreRejected() {
         var content = new Protocol();content.setProtocolType(DefaultProtocolType.SEND_USER_STATUS);
         content.setDevice(DeviceType.PC);content.setChatType(ChatType.ONE_2_ONE);
-        for (var protocol : new Protocol[]{Protocol.pong(), content, timedAck(), message(ChatUser.stringUserId("1", 1))}) {
+        for (var protocol : new Protocol[]{new Protocol().offline(), content, timedAck(), message(ChatUser.stringUserId("1", 1))}) {
             var encoded = protocol.encode();
             var trailing = java.nio.ByteBuffer.allocate(encoded.remaining() + 1);
             trailing.put(encoded).put((byte) 99).flip();

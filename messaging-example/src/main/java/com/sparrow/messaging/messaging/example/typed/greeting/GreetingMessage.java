@@ -24,6 +24,16 @@ import com.sparrow.messaging.protocol.enums.DefaultProtocolType;
 
 public record GreetingMessage(String text) implements TypedEvent {
     @Override
+    public Long getSeqNo() {
+        return null;
+    }
+
+    @Override
+    public String getConversationKey() {
+        return "example-conversation";
+    }
+
+    @Override
     public short getMessageType() {
         return ExampleMessageType.GREETING.getIdentity().shortValue();
     }

@@ -23,6 +23,16 @@ import com.sparrow.messaging.protocol.TypedEvent;
 import com.sparrow.messaging.protocol.enums.DefaultProtocolType;
 
 public record RoutedMessage(String text, String routingKey) implements TypedEvent {
+    @Override
+    public Long getSeqNo() {
+        return null;
+    }
+
+    @Override
+    public String getConversationKey() {
+        return "example-conversation";
+    }
+
     public RoutedMessage(String text) {
         this(text, "typed-custom");
     }

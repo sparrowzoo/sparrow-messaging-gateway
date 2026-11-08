@@ -64,12 +64,14 @@ public class WebSocketServerInitializer extends ChannelInitializer<SocketChannel
             pipeline.addLast(sslCtx.newHandler(ch.alloc()));
         }
         pipeline.addLast(new HttpServerCodec());
-        // 10秒无读取时关闭；检测器必须位于关闭处理器之前。
-        pipeline.addLast(new IdleStateHandler(10, 0, 0));
+        // 原生 PONG 和业务输入均刷新读计时；连续30秒无输入则关闭连接。
+        pipeline.addLast(new IdleStateHandler(30, 0, 0));
         pipeline.addLast(new HttpObjectAggregator(1024));
         // 单帧与分片总量均限制为640 KiB；不启用压缩，避免解压放大。
         pipeline.addLast(new WebSocketFrameAggregator(655360));
-        pipeline.addLast(new WebSocketServerProtocolSupportHandshake(WEBSOCKET_PATH, 655360, trustedProxies));
+        pipeline.addLast("websocket-protocol", new WebSocketServerProtocolSupportHandshake(WEBSOCKET_PATH, 655360, trustedProxies));
+        // Netty 安装握手处理器后再插入探测器，才能收到握手完成事件，并在 PONG 被消费前刷新读计时。
+        pipeline.addBefore("websocket-protocol", "websocket-heartbeat", new WebSocketHeartbeatHandler());
         // 可选调试首页缺资源时返回404，应用消息由后续网关处理。
         pipeline.addLast(new WebSocketIndexPageHandler(WEBSOCKET_PATH));
         pipeline.addLast(new WebSocketGateway());

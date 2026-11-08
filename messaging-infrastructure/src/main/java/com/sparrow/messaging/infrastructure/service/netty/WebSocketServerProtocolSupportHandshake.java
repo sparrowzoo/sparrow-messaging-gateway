@@ -49,8 +49,7 @@ public class WebSocketServerProtocolSupportHandshake extends WebSocketServerProt
     private ClientConnection connection;
     private final ClientIpResolver clientIpResolver;
 
-    // js 不支持ping pong 帧
-    // https://stackoverflow.com/questions/10585355/sending-websocket-ping-pong-frame-from-browser
+    // 浏览器自动回复原生 PONG；JavaScript 不需要发送应用层心跳。
 
     /**
      * FIN: 1 bit，表示该帧是否为消息的最后一帧。1-是，0-否。

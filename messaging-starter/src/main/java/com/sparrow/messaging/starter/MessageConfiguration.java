@@ -29,7 +29,6 @@ import com.sparrow.messaging.domain.service.pub.sub.typed.mapping.TypedPubSubMap
 import com.sparrow.messaging.infrastructure.service.spring.LocalConfigRoutingKeyPublisherMapping;
 import com.sparrow.messaging.infrastructure.service.spring.event.AIEventSubscriber;
 import com.sparrow.messaging.infrastructure.service.spring.event.IMEventSubscriber;
-import com.sparrow.messaging.infrastructure.service.spring.event.PingSubscriber;
 import com.sparrow.messaging.infrastructure.service.spring.event.UserStatusEventSubscriber;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.SearchStrategy;
@@ -46,11 +45,6 @@ public class MessageConfiguration {
     @Bean
     public DefaultTypedPublisher defaultTypedPublisher() {
         return new DefaultTypedPublisher();
-    }
-
-    @Bean
-    public PingSubscriber pingSubscriber() {
-        return new PingSubscriber();
     }
 
     @Bean

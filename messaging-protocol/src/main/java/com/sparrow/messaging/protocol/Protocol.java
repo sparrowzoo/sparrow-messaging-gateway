@@ -17,6 +17,9 @@ limitations under the License.
 
 package com.sparrow.messaging.protocol;
 
+import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONException;
+import com.alibaba.fastjson.JSONObject;
 import com.sparrow.messaging.protocol.enums.ChatType;
 import com.sparrow.messaging.protocol.enums.DefaultProtocolType;
 import com.sparrow.protocol.LoginUser;
@@ -42,7 +45,7 @@ import java.util.Objects;
  *          或 sender + sessionKey 的 UTF-8 字节数(1) + sessionKey（群聊）
  * 用户结构：ID 的字节数(1) + ID + category(1)
  * </pre>
- * protocolType 决定报文结束于哪一段；PONG 等仅包含事件段的报文占一个字节。
+ * protocolType 决定报文结束于哪一段；OFFLINE 等仅包含事件段的报文占一个字节。
  * 所有文本使用 UTF-8，多字节数值使用大端；长度和用户类别按无符号数处理。
  * messageType 用 short 保留完整的 16 位，业务上可使用 Short.toUnsignedInt 获取无符号值。
  * 单聊会话 key 的聊天类型、双方类别和长度各占一位 Base62 字符，双方类别限 0–61，ID 的 String.length() 限 1–61；
@@ -77,7 +80,8 @@ public class Protocol implements TypedEvent {
     private DeviceType device;
     /**
      * 业务消息类型 ID，范围 0–65535；在线协议中占两个字节
-     * 决定正文格式
+     * - 决定后端正文格式，反序列化
+     * - 决定前端的渲染样式
      */
     private short messageType;
     /**
@@ -85,9 +89,14 @@ public class Protocol implements TypedEvent {
      */
     private ChatType chatType;
     /**
+     *
      * @see DefaultProtocolType
-     * 决定协议的格式和标识
-     * 也间接决定业务类型
+     * - 决定协议的格式和标识
+     * - 决定 上行 下行消息标识
+     * - 决定 是否触发业务逻辑等标识
+     * - 决定业务类型
+     * - 决定handler 和订阅规则及publisher 的分发规则
+     * 如果请求返回都走publisher分发则需要定义REQUEST RESPONSE 两个标识
      */
     private ProtocolType protocolType;
     /**
@@ -117,8 +126,9 @@ public class Protocol implements TypedEvent {
      * 编码不会自动刷新时间，重复编码同一消息可保持相同字节。
      */
     private Long serverTime;
-
     private LoginUser loginUser;
+    private Long seqNo;
+    private String conversationKey;
 
     /**
      * 解析数组中的完整一帧，不修改或保留输入数组。
@@ -357,6 +367,22 @@ public class Protocol implements TypedEvent {
                 .put(idBytes).put(user.getCategory().byteValue()).array();
     }
 
+    public String getConversationKey() {
+        if (this.payload != null && !this.payload.trim().isEmpty()) {
+            try {
+                JSONObject payloadObject = JSON.parseObject(this.payload);
+                if (payloadObject != null) {
+                    Object conversationKey = payloadObject.get("convKey");
+                    if (conversationKey instanceof String) {
+                        return (String) conversationKey;
+                    }
+                }
+            } catch (JSONException ignored) {
+                // 普通文本等非 JSON 对象载荷使用默认会话。
+            }
+        }
+        return this.chatSession.key();
+    }
 
     private static byte[] readBytes(ByteBuffer source, int length, String field) {
         requireRemaining(source, length, field);
@@ -378,15 +404,6 @@ public class Protocol implements TypedEvent {
         }
     }
 
-
-    /**
-     * 生成仅包含事件类型的 PONG，不修改原请求。
-     */
-    public static Protocol pong() {
-        Protocol pong = new Protocol();
-        pong.protocolType = DefaultProtocolType.PONG;
-        return pong;
-    }
 
     public Protocol ack() {
         Protocol ack = clone();

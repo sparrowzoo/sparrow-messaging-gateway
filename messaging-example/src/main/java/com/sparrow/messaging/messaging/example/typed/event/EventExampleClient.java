@@ -57,7 +57,7 @@ public class EventExampleClient implements AutoCloseable {
 
     public Protocol send(Protocol message) throws Throwable {
         Protocol request = new Protocol(message.encode());
-        // PING 只有事件字节，发送者和设备使用连接中的可信身份。
+        // 发送者和设备使用连接中的可信身份。
         request.setSender(getSender());
         request.setDevice(getDevice());
         subscriptions.getImmediately(request).subscribe(request);

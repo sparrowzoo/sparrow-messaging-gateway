@@ -23,6 +23,16 @@ import com.sparrow.messaging.protocol.TypedEvent;
 import com.sparrow.messaging.protocol.enums.DefaultProtocolType;
 
 public record FileMessage(String text, short messageType) implements TypedEvent {
+    @Override
+    public Long getSeqNo() {
+        return null;
+    }
+
+    @Override
+    public String getConversationKey() {
+        return "example-conversation";
+    }
+
     public FileMessage(String text) {
         this(text, ExampleMessageType.FILE.getIdentity().shortValue());
     }

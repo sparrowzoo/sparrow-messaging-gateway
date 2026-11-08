@@ -119,7 +119,7 @@ class ReplySubscriberTest {
     }
 
     private List<Subscriber<Protocol>> replies() {
-        return List.of(new IMEventSubscriber(), new PingSubscriber(), new UserStatusEventSubscriber());
+        return List.of(new IMEventSubscriber(), new UserStatusEventSubscriber());
     }
 
     private void injectEmptyDirectory(Subscriber<Protocol> subscriber) throws Exception {

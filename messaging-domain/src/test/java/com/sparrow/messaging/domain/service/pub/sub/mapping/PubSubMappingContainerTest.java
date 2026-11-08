@@ -66,6 +66,15 @@ class PubSubMappingContainerTest {
     }
 
     static class Message implements Event {
+        @Override
+        public Long getSeqNo() {
+            return 1L;
+        }
+
+        @Override
+        public String getConversationKey() {
+            return "test-conversation";
+        }
     }
 
     static class Base extends AbstractSubHandler<Message> {

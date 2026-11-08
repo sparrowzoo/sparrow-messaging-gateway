@@ -32,10 +32,10 @@ limitations under the License.
  */
 package com.sparrow.messaging.infrastructure.service.netty;
 
-import com.sparrow.context.SessionContext;
 import com.sparrow.core.spi.ApplicationContext;
 import com.sparrow.messaging.domain.service.ClientConnection;
 import com.sparrow.messaging.domain.service.ConnectionRegistry;
+import com.sparrow.messaging.protocol.api.SeedService;
 import com.sparrow.messaging.domain.service.pub.sub.typed.TypedPublishStrategy;
 import com.sparrow.messaging.domain.service.pub.sub.typed.mapping.TypedPubSubMappingContainer;
 import com.sparrow.messaging.protocol.ChatUser;
@@ -43,6 +43,7 @@ import com.sparrow.messaging.protocol.Protocol;
 import com.sparrow.messaging.protocol.ProtocolType;
 import com.sparrow.messaging.protocol.enums.DefaultProtocolType;
 import com.sparrow.protocol.LoginUser;
+import com.sparrow.protocol.context.SessionContext;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandler;
@@ -95,6 +96,10 @@ public class WebSocketGateway extends SimpleChannelInboundHandler<WebSocketFrame
                 protocol.setDevice(loginUser.getDeviceType());
                 protocol.setLoginUser(loginUser);
                 ProtocolType protocolType = protocol.getProtocolType();
+                if (protocolType.needBusiness()) {
+                    SeedService seedService = ApplicationContext.getContainer().getBean(SeedService.class);
+                    protocol.setSeqNo(seedService.nextId(protocol.getConversationKey()));
+                }
                 if (protocolType.localImmediately()) {
                     // Publisher 可以修改消息；接收回执使用入站时的字段快照。
                     Protocol localProtocol = protocol.clone();

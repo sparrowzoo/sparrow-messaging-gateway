@@ -37,6 +37,7 @@ import java.util.concurrent.TimeUnit;
  */
 public class RealWebSocketClient implements WebSocket.Listener, AutoCloseable {
     private final HttpClient httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+    private final CompletableFuture<Void> nativePing = new CompletableFuture<>();
     private final CompletableFuture<Void> authenticated = new CompletableFuture<>();
     private final CompletableFuture<Void> closed = new CompletableFuture<>();
     private final BlockingQueue<Object> responses = new LinkedBlockingQueue<>();
@@ -95,6 +96,16 @@ public class RealWebSocketClient implements WebSocket.Listener, AutoCloseable {
         }
         webSocket.request(1);
         return null;
+    }
+
+    @Override
+    public CompletionStage<?> onPing(WebSocket webSocket, ByteBuffer message) {
+        nativePing.complete(null);
+        return WebSocket.Listener.super.onPing(webSocket, message);
+    }
+
+    public void awaitNativePing() throws Exception {
+        nativePing.get(15, TimeUnit.SECONDS);
     }
 
     @Override

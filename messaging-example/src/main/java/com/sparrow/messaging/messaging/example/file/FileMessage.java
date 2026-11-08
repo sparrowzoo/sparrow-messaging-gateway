@@ -21,6 +21,16 @@ import com.sparrow.messaging.protocol.Event;
 
 public record FileMessage(String text) implements Event {
     @Override
+    public Long getSeqNo() {
+        return null;
+    }
+
+    @Override
+    public String getConversationKey() {
+        return "example-conversation";
+    }
+
+    @Override
     public String getRoutingKey() {
         return "file";
     }

@@ -49,7 +49,7 @@ public class WebSocketExampleApplication {
     public static void main(String[] args) throws Exception {
         try (var context = SpringApplication.run(WebSocketExampleApplication.class, args)) {
             Exchange result = runExample(context);
-            logger.info("真实 WebSocket 发送 PING，收到 protocolType={}", result.pong().getProtocolType());
+            logger.info("已收到服务器原生 WebSocket PING，客户端协议栈自动回复 PONG");
             logger.info("真实 WebSocket 发送 MESSAGE，收到 protocolType={}", result.ack().getProtocolType());
         }
     }
@@ -57,9 +57,7 @@ public class WebSocketExampleApplication {
     public static Exchange runExample(ApplicationContext context) throws Exception {
         try (var server = new ExistingWebSocketServer(context);
                 var client = new RealWebSocketClient(server.uri(), TOKEN)) {
-            Protocol ping = new Protocol();
-            ping.setProtocolType(DefaultProtocolType.PING);
-            Protocol pong = client.send(ping);
+            client.awaitNativePing();
 
             Protocol message = new Protocol();
             message.setProtocolType(DefaultProtocolType.IM);
@@ -72,8 +70,13 @@ public class WebSocketExampleApplication {
             message.setPayload("Hello real WebSocket");
             message.setClientSendTime(System.currentTimeMillis());
             Protocol ack = client.send(message);
-            return new Exchange(pong, ack, context.getBean(WebSocketMessageSubscriber.class).getLastMessage());
+            return new Exchange(true, ack, context.getBean(WebSocketMessageSubscriber.class).getLastMessage());
         }
+    }
+
+    @Bean
+    public com.sparrow.messaging.protocol.api.SeedService exampleSeedService() {
+        return new com.sparrow.messaging.domain.service.LocalMemorySeedService();
     }
 
     @Bean
@@ -98,6 +101,6 @@ public class WebSocketExampleApplication {
         };
     }
 
-    public record Exchange(Protocol pong, Protocol ack, Protocol published) {
+    public record Exchange(boolean nativePingReceived, Protocol ack, Protocol published) {
     }
 }
