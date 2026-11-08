@@ -114,9 +114,29 @@ class SubscriberProxyTest {
     }
 
     public static class PlainEvent implements Event {
+        @Override
+        public Long getSeqNo() {
+            return null;
+        }
+
+        @Override
+        public String getConversationKey() {
+            return "test-conversation";
+        }
+
     }
 
     public static class SampleTypedEvent implements TypedEvent {
+        @Override
+        public Long getSeqNo() {
+            return null;
+        }
+
+        @Override
+        public String getConversationKey() {
+            return "test-conversation";
+        }
+
         @Override
         public short getMessageType() {
             return 401;

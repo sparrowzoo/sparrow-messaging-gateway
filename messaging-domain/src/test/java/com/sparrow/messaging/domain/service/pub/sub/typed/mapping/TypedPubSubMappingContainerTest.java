@@ -17,10 +17,13 @@ limitations under the License.
 
 package com.sparrow.messaging.domain.service.pub.sub.typed.mapping;
 
-import com.sparrow.messaging.protocol.*;
+import com.sparrow.messaging.protocol.MessageType;
+import com.sparrow.messaging.protocol.Protocol;
+import com.sparrow.messaging.protocol.ProtocolType;
 import com.sparrow.messaging.protocol.api.TypedSubscriber;
 import com.sparrow.messaging.protocol.enums.DefaultProtocolType;
 import org.junit.jupiter.api.Test;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 class TypedPubSubMappingContainerTest {
@@ -29,7 +32,8 @@ class TypedPubSubMappingContainerTest {
         var mappings = new TypedPubSubMappingContainer();
         assertThrows(IllegalArgumentException.class, () -> mappings.put(null));
         assertThrows(IllegalArgumentException.class, () -> mappings.put(new TypedSubscriber<Protocol>() {
-            public void subscribe(Protocol event) {}
+            public void subscribe(Protocol event) {
+            }
         }));
     }
 
@@ -37,10 +41,20 @@ class TypedPubSubMappingContainerTest {
     void missingMessageIdentityHasAnExplicitError() {
         var mappings = new TypedPubSubMappingContainer();
         assertThrows(IllegalArgumentException.class, () -> mappings.put(new TypedSubscriber<Protocol>() {
-            public void subscribe(Protocol event) {}
-            public Boolean localImmediately() { return false; }
-            public MessageType getMessageType() { return MissingIdentity.MESSAGE; }
-            public ProtocolType getProtocolType() { return DefaultProtocolType.IM; }
+            public void subscribe(Protocol event) {
+            }
+
+            public Boolean localImmediately() {
+                return false;
+            }
+
+            public MessageType getMessageType() {
+                return MissingIdentity.MESSAGE;
+            }
+
+            public ProtocolType getProtocolType() {
+                return DefaultProtocolType.IM;
+            }
         }));
     }
 
@@ -48,26 +62,31 @@ class TypedPubSubMappingContainerTest {
     void eventSubscriberDoesNotNeedAMessageType() {
         var mappings = new TypedPubSubMappingContainer();
         var subscriber = new TypedSubscriber<Protocol>() {
-            public void subscribe(Protocol event) {}
-            public ProtocolType getProtocolType() { return DefaultProtocolType.PING; }
+            public void subscribe(Protocol event) {
+            }
+
+            public ProtocolType getProtocolType() {
+                return DefaultProtocolType.FETCH_USER_STATUS;
+            }
         };
         mappings.put(subscriber);
-        var ping = new Protocol();ping.setProtocolType(DefaultProtocolType.PING);
-        assertSame(subscriber, mappings.getImmediately(ping));
+        var query = new Protocol();
+        query.setProtocolType(DefaultProtocolType.FETCH_USER_STATUS);
+        assertSame(subscriber, mappings.getImmediately(query));
     }
 
     @Test
     void messageSubscriberMustDeclareItsEventType() {
         var mappings = new TypedPubSubMappingContainer();
         assertThrows(IllegalArgumentException.class,
-            () -> mappings.put(subscriber(null, TestMessageType.TEXT)));
+                () -> mappings.put(subscriber(null, TestMessageType.TEXT)));
     }
 
     @Test
     void sameMessageNumberInDifferentEventTypesUsesIndependentSubscribers() {
         var mappings = new TypedPubSubMappingContainer();
         var im = subscriber(DefaultProtocolType.IM, TestMessageType.TEXT);
-        var ai = subscriber(DefaultProtocolType.AI, TestMessageType.TEXT);
+        var ai = subscriber(DefaultProtocolType.AI_REQUEST, TestMessageType.TEXT);
         var imReply = subscriber(DefaultProtocolType.IM, null);
         mappings.put(im);
         mappings.put(ai);
@@ -78,19 +97,19 @@ class TypedPubSubMappingContainerTest {
         message.setProtocolType(DefaultProtocolType.IM);
         assertSame(im, mappings.get(message));
         assertSame(imReply, mappings.getImmediately(message));
-        message.setProtocolType(DefaultProtocolType.AI);
+        message.setProtocolType(DefaultProtocolType.AI_REQUEST);
         assertSame(ai, mappings.get(message));
         assertNull(mappings.getImmediately(message));
-        message.setProtocolType(DefaultProtocolType.PING);
+        message.setProtocolType(DefaultProtocolType.FETCH_USER_STATUS);
         assertNull(mappings.get(message));
     }
 
     @Test
     void invalidMessageNumbersHaveAnExplicitError() {
         var mappings = new TypedPubSubMappingContainer();
-        for (var type : new TestMessageType[] {TestMessageType.NEGATIVE, TestMessageType.TOO_LARGE}) {
+        for (var type : new TestMessageType[]{TestMessageType.NEGATIVE, TestMessageType.TOO_LARGE}) {
             assertThrows(IllegalArgumentException.class,
-                () -> mappings.put(subscriber(DefaultProtocolType.IM, type)));
+                    () -> mappings.put(subscriber(DefaultProtocolType.IM, type)));
         }
     }
 
@@ -109,18 +128,35 @@ class TypedPubSubMappingContainerTest {
     void businessSubscriberWithoutAMessageTypeIsRejected() {
         var mappings = new TypedPubSubMappingContainer();
         assertThrows(IllegalArgumentException.class, () -> mappings.put(new TypedSubscriber<Protocol>() {
-            public ProtocolType getProtocolType() { return DefaultProtocolType.IM; }
-            public Boolean localImmediately() { return false; }
-            public void subscribe(Protocol event) {}
+            public ProtocolType getProtocolType() {
+                return DefaultProtocolType.IM;
+            }
+
+            public Boolean localImmediately() {
+                return false;
+            }
+
+            public void subscribe(Protocol event) {
+            }
         }));
     }
 
     private TypedSubscriber<Protocol> subscriber(ProtocolType eventType, MessageType messageType) {
         return new TypedSubscriber<Protocol>() {
-            public void subscribe(Protocol event) {}
-            public ProtocolType getProtocolType() { return eventType; }
-            public Boolean localImmediately() { return messageType == null; }
-            public MessageType getMessageType() { return messageType; }
+            public void subscribe(Protocol event) {
+            }
+
+            public ProtocolType getProtocolType() {
+                return eventType;
+            }
+
+            public Boolean localImmediately() {
+                return messageType == null;
+            }
+
+            public MessageType getMessageType() {
+                return messageType;
+            }
         };
     }
 
@@ -128,12 +164,21 @@ class TypedPubSubMappingContainerTest {
         TEXT(101), NEGATIVE(-1), TOO_LARGE(65536), HIGH(65535);
 
         private final Integer identity;
-        TestMessageType(Integer identity) { this.identity = identity; }
-        public Integer getIdentity() { return identity; }
+
+        TestMessageType(Integer identity) {
+            this.identity = identity;
+        }
+
+        public Integer getIdentity() {
+            return identity;
+        }
     }
 
     enum MissingIdentity implements MessageType {
         MESSAGE;
-        public Integer getIdentity() { return null; }
+
+        public Integer getIdentity() {
+            return null;
+        }
     }
 }

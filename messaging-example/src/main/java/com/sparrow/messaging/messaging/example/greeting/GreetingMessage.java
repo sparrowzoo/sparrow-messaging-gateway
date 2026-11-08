@@ -20,4 +20,14 @@ package com.sparrow.messaging.messaging.example.greeting;
 import com.sparrow.messaging.protocol.Event;
 
 public record GreetingMessage(String text) implements Event {
+    @Override
+    public Long getSeqNo() {
+        return null;
+    }
+
+    @Override
+    public String getConversationKey() {
+        return "example-conversation";
+    }
+
 }

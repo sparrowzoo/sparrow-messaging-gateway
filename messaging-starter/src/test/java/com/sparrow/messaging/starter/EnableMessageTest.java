@@ -20,33 +20,28 @@ package com.sparrow.messaging.starter;
 import com.sparrow.messaging.domain.service.ConnectionRegistry;
 import com.sparrow.messaging.domain.service.pub.sub.PublishStrategy;
 import com.sparrow.messaging.domain.service.pub.sub.RoutingKeyPublisherMapping;
-import com.sparrow.messaging.domain.service.pub.sub.typed.TypedPublishStrategy;
 import com.sparrow.messaging.domain.service.pub.sub.typed.DefaultTypedPublisher;
+import com.sparrow.messaging.domain.service.pub.sub.typed.TypedPublishStrategy;
 import com.sparrow.messaging.domain.service.pub.sub.typed.mapping.TypedPubSubMappingContainer;
 import com.sparrow.messaging.infrastructure.service.spring.AbstractSpringTypedSubscriber;
-import com.sparrow.messaging.infrastructure.service.spring.event.IMEventSubscriber;
 import com.sparrow.messaging.infrastructure.service.spring.event.AIEventSubscriber;
-import com.sparrow.messaging.infrastructure.service.spring.event.PingSubscriber;
+import com.sparrow.messaging.infrastructure.service.spring.event.IMEventSubscriber;
 import com.sparrow.messaging.infrastructure.service.spring.event.UserStatusEventSubscriber;
-import com.sparrow.messaging.protocol.ProtocolType;
 import com.sparrow.messaging.protocol.MessageType;
+import com.sparrow.messaging.protocol.ProtocolType;
 import com.sparrow.messaging.protocol.TypedEvent;
 import com.sparrow.messaging.protocol.api.TypedPublisher;
 import com.sparrow.messaging.protocol.enums.DefaultProtocolType;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
-import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Bean;
-
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.Map;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.MapPropertySource;
 
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import static org.junit.jupiter.api.Assertions.*;
 
 class EnableMessageTest {
     @Test
@@ -71,9 +66,8 @@ class EnableMessageTest {
             assertNotNull(context.getBean(TypedPublishStrategy.class));
             assertNotNull(context.getBean(DefaultTypedPublisher.class));
             var mappings = context.getBean(TypedPubSubMappingContainer.class);
-            assertSame(context.getBean(PingSubscriber.class), mappings.getImmediately(event(DefaultProtocolType.PING)));
             assertInstanceOf(IMEventSubscriber.class, mappings.getImmediately(event(DefaultProtocolType.IM)));
-            assertInstanceOf(AIEventSubscriber.class, mappings.getImmediately(event(DefaultProtocolType.AI)));
+            assertInstanceOf(AIEventSubscriber.class, mappings.getImmediately(event(DefaultProtocolType.AI_REQUEST)));
             assertInstanceOf(UserStatusEventSubscriber.class, mappings.getImmediately(event(DefaultProtocolType.FETCH_USER_STATUS)));
         }
     }
@@ -110,7 +104,7 @@ class EnableMessageTest {
             context.refresh();
             var mapping = context.getBean(RoutingKeyPublisherMapping.class);
             assertEquals("orderPublisher", mapping.getPublisherKey(event(DefaultProtocolType.IM, "orders")));
-            assertEquals("sharedPublisher", mapping.getPublisherKey(event(DefaultProtocolType.AI, "orders")));
+            assertEquals("sharedPublisher", mapping.getPublisherKey(event(DefaultProtocolType.AI_REQUEST, "orders")));
             assertEquals("unmapped", mapping.getPublisherKey(event(DefaultProtocolType.IM, "unmapped")));
         }
     }
@@ -177,6 +171,16 @@ class EnableMessageTest {
 
     private static TypedEvent event(ProtocolType type, String routingKey) {
         return new TypedEvent() {
+            @Override
+            public Long getSeqNo() {
+                return null;
+            }
+
+            @Override
+            public String getConversationKey() {
+                return "test-conversation";
+            }
+
             @Override
             public String getRoutingKey() {
                 return routingKey;

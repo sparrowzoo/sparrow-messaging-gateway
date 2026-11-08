@@ -19,7 +19,17 @@ import static org.apache.rocketmq.client.consumer.listener.ConsumeConcurrentlySt
 
 class SparrowRocketMQMessageListenerTest {
     private final List<Event> delivered = new ArrayList<>();
-    private final Event event = new Event() {};
+    private final Event event = new Event() {
+        @Override
+        public Long getSeqNo() {
+            return null;
+        }
+
+        @Override
+        public String getConversationKey() {
+            return "test-conversation";
+        }
+    };
 
     private SparrowRocketMQMessageListener listener(MQIdempotent idempotent) {
         var listener = new SparrowRocketMQMessageListener();

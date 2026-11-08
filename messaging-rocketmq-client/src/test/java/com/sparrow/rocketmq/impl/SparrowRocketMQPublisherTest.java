@@ -16,7 +16,17 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 class SparrowRocketMQPublisherTest {
-    private final Event event = new Event() {};
+    private final Event event = new Event() {
+        @Override
+        public Long getSeqNo() {
+            return null;
+        }
+
+        @Override
+        public String getConversationKey() {
+            return "test-conversation";
+        }
+    };
     private final List<Message> sends = new ArrayList<>();
 
     private SparrowRocketMQPublisher publisher(Integer attempts, Throwable failure, int failBeforeSuccess) throws Exception {

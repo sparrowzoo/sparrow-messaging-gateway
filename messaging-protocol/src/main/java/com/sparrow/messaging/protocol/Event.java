@@ -23,4 +23,8 @@ public interface Event extends POJO {
     default String getRoutingKey() {
         return "default";
     }
+
+    Long getSeqNo();
+
+    String getConversationKey();
 }

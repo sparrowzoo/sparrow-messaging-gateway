@@ -50,13 +50,15 @@ class WebSocketGatewayTest {
         var channel = new EmbeddedChannel(new WebSocketGateway());
         try (var bindings = new Bindings()) {
             bindings.bind(ConfigReader.class, new SparrowConfigReader());
+        bindings.bind(com.sparrow.messaging.protocol.api.SeedService.class,
+                new com.sparrow.messaging.domain.service.LocalMemorySeedService());
             bindings.bind(ConnectionRegistry.class, directory);
             bindings.bind(TypedPubSubMappingContainer.class, new TypedPubSubMappingContainer());
             var user = new DefaultLoginUser();
             user.setUserId(1L);user.setCategory(1);user.setDeviceType(DeviceType.PC);
             directory.register(new NettyWebsocketConnection(channel, user));
             assertDoesNotThrow(() -> channel.writeInbound(new BinaryWebSocketFrame(
-                    Unpooled.wrappedBuffer(new byte[]{40}))));
+                    Unpooled.wrappedBuffer(new byte[]{70}))));
             channel.runPendingTasks();
             assertTrue(channel.isActive());
             assertErrorResponse(channel);
@@ -71,13 +73,15 @@ class WebSocketGatewayTest {
         var mappings = new TypedPubSubMappingContainer();
         var delivered = new AtomicInteger();
         mappings.put(new TypedSubscriber<Protocol>() {
-            public ProtocolType getProtocolType() { return DefaultProtocolType.PING; }
+            public ProtocolType getProtocolType() { return DefaultProtocolType.FETCH_USER_STATUS; }
             public void subscribe(Protocol event) { delivered.incrementAndGet(); }
         });
         var staleChannel = new EmbeddedChannel(new WebSocketGateway());
         var newChannel = new EmbeddedChannel();
         try (var bindings = new Bindings()) {
             bindings.bind(ConfigReader.class, new SparrowConfigReader());
+        bindings.bind(com.sparrow.messaging.protocol.api.SeedService.class,
+                new com.sparrow.messaging.domain.service.LocalMemorySeedService());
             bindings.bind(ConnectionRegistry.class, directory);
             bindings.bind(TypedPubSubMappingContainer.class, mappings);
             var user = new DefaultLoginUser();
@@ -89,7 +93,7 @@ class WebSocketGatewayTest {
             directory.register(stale);
             directory.register(replacement);
             newChannel.attr(NettyWebsocketConnection.LAST_ACCESS_TIME).set(1L);
-            staleChannel.writeInbound(new BinaryWebSocketFrame(Unpooled.wrappedBuffer(new byte[]{30})));
+            staleChannel.writeInbound(new BinaryWebSocketFrame(Unpooled.wrappedBuffer(new byte[]{45})));
             assertFalse(staleChannel.isActive());
             assertEquals(0, delivered.get());
             assertEquals(1L, replacement.getLastAccessTime());
@@ -129,7 +133,7 @@ class WebSocketGatewayTest {
                 public void subscribe(Protocol event) { receipts.incrementAndGet(); }
             });
             mappings.put(new TypedSubscriber<Protocol>() {
-                public ProtocolType getProtocolType() { return DefaultProtocolType.PING; }
+                public ProtocolType getProtocolType() { return DefaultProtocolType.FETCH_USER_STATUS; }
                 public void subscribe(Protocol event) { receipts.incrementAndGet(); }
             });
             try (var bindings = new Bindings()) {
@@ -144,7 +148,7 @@ class WebSocketGatewayTest {
                 channel.runPendingTasks();
                 assertTrue(channel.isActive(), "Business failures must not disconnect the client");
                 assertErrorResponse(channel);
-                channel.writeInbound(new BinaryWebSocketFrame(Unpooled.wrappedBuffer(new byte[]{30})));
+                channel.writeInbound(new BinaryWebSocketFrame(Unpooled.wrappedBuffer(new byte[]{45})));
                 channel.runPendingTasks();
                 assertTrue(channel.isActive());
                 assertEquals(2, receipts.get(), "Receipt processing and subsequent messages remain available");
@@ -160,13 +164,13 @@ class WebSocketGatewayTest {
         var channel = new EmbeddedChannel(new WebSocketGateway());
         var mappings = new TypedPubSubMappingContainer();
         mappings.put(new TypedSubscriber<Protocol>() {
-            public ProtocolType getProtocolType() { return DefaultProtocolType.PING; }
+            public ProtocolType getProtocolType() { return DefaultProtocolType.FETCH_USER_STATUS; }
             public void subscribe(Protocol event) { throw new IllegalStateException("reply failed"); }
         });
         try (var bindings = new Bindings()) {
             bindConnection(bindings, directory, channel);
             bindings.bind(TypedPubSubMappingContainer.class, mappings);
-            channel.writeInbound(new BinaryWebSocketFrame(Unpooled.wrappedBuffer(new byte[]{30})));
+            channel.writeInbound(new BinaryWebSocketFrame(Unpooled.wrappedBuffer(new byte[]{45})));
             channel.runPendingTasks();
             assertTrue(channel.isActive());
             assertErrorResponse(channel);
@@ -182,14 +186,14 @@ class WebSocketGatewayTest {
         var mappings = new TypedPubSubMappingContainer();
         var fatal = new LinkageError("fatal reply failure");
         mappings.put(new TypedSubscriber<Protocol>() {
-            public ProtocolType getProtocolType() { return DefaultProtocolType.PING; }
+            public ProtocolType getProtocolType() { return DefaultProtocolType.FETCH_USER_STATUS; }
             public void subscribe(Protocol event) { throw fatal; }
         });
         try (var bindings = new Bindings()) {
             bindConnection(bindings, directory, channel);
             bindings.bind(TypedPubSubMappingContainer.class, mappings);
             assertSame(fatal, assertThrows(LinkageError.class, () -> channel.writeInbound(
-                    new BinaryWebSocketFrame(Unpooled.wrappedBuffer(new byte[]{30})))));
+                    new BinaryWebSocketFrame(Unpooled.wrappedBuffer(new byte[]{45})))));
             channel.runPendingTasks();
             assertFalse(channel.isActive());
             assertNull(channel.readOutbound());
@@ -214,7 +218,7 @@ class WebSocketGatewayTest {
             bindings.bind(TypedPublishStrategy.class, new TypedPublishStrategy() {
                 public void publish(com.sparrow.messaging.protocol.TypedEvent event) {
                     var changed = (Protocol) event;
-                    changed.setProtocolType(DefaultProtocolType.PONG);
+                    changed.setProtocolType(DefaultProtocolType.OFFLINE);
                     changed.setClientSendTime(999L);
                 }
             });
@@ -260,9 +264,45 @@ class WebSocketGatewayTest {
         }
     }
 
+    @Test
+    void statusQueryDoesNotAllocateBusinessSequence() throws Exception {
+        var directory = new MultiDeviceConnectionRegistry();
+        var channel = new EmbeddedChannel(new WebSocketGateway());
+        var calls = new AtomicInteger();
+        var mappings = new TypedPubSubMappingContainer();
+        mappings.put(new TypedSubscriber<Protocol>() {
+            public ProtocolType getProtocolType() { return DefaultProtocolType.FETCH_USER_STATUS; }
+            public void subscribe(Protocol event) {
+                assertNull(event.getChatSession());
+                assertNull(event.getSeqNo());
+                calls.incrementAndGet();
+            }
+        });
+        try (var bindings = new Bindings()) {
+            bindConnection(bindings, directory, channel);
+            bindings.bind(com.sparrow.messaging.protocol.api.SeedService.class,
+                    new com.sparrow.messaging.protocol.api.SeedService() {
+                        public Long nextId(String key) {
+                            fail("A status query must not allocate a business sequence");
+                            return null;
+                        }
+                    });
+            bindings.bind(TypedPubSubMappingContainer.class, mappings);
+            channel.writeInbound(new BinaryWebSocketFrame(Unpooled.wrappedBuffer(new byte[]{45})));
+            channel.runPendingTasks();
+            assertEquals(1, calls.get());
+            assertTrue(channel.isActive());
+            assertNull(channel.readOutbound());
+        } finally {
+            channel.finishAndReleaseAll();
+        }
+    }
+
     private static void bindConnection(Bindings bindings, MultiDeviceConnectionRegistry directory,
             EmbeddedChannel channel) throws Exception {
         bindings.bind(ConfigReader.class, new SparrowConfigReader());
+        bindings.bind(com.sparrow.messaging.protocol.api.SeedService.class,
+                new com.sparrow.messaging.domain.service.LocalMemorySeedService());
         bindings.bind(ConnectionRegistry.class, directory);
         var user = new DefaultLoginUser();
         user.setUserId(1L);user.setCategory(1);user.setDeviceType(DeviceType.PC);
@@ -293,7 +333,9 @@ class WebSocketGatewayTest {
         private final Map<String, Object> previous = new LinkedHashMap<>();
         void bind(Class<?> type, Object value) {
             String name = ClassUtility.getBeanNameByClass(type);
-            previous.put(name, objects.getObject(name));
+            if (!previous.containsKey(name)) {
+                previous.put(name, objects.getObject(name));
+            }
             objects.pubObject(name, value);
         }
         public void close() {

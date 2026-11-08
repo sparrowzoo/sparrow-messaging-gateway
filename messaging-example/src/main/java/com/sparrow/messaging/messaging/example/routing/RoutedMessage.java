@@ -20,6 +20,16 @@ package com.sparrow.messaging.messaging.example.routing;
 import com.sparrow.messaging.protocol.Event;
 
 public record RoutedMessage(String text, String routingKey) implements Event {
+    @Override
+    public Long getSeqNo() {
+        return null;
+    }
+
+    @Override
+    public String getConversationKey() {
+        return "example-conversation";
+    }
+
     public RoutedMessage(String text) {
         this(text, "custom");
     }

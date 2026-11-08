@@ -2,7 +2,7 @@
 
 消息网关负责连接管理、接收客户端消息，以及向客户端发送响应。业务权限、业务数据和消息处理规则由接入项目负责。
 
-当前已实现本地发布订阅、按路由选择发布器、多设备连接管理，以及 Netty 二进制 WebSocket 接入。`messaging-example` 提供普通、typed、文件、心跳/回执和真实 WebSocket 示例。RocketMQ 模块暂未进入本阶段交付范围，不作为默认可用链路。
+当前已实现本地发布订阅、按路由选择发布器、多设备连接管理，以及 Netty 二进制 WebSocket 接入。`messaging-example` 提供普通、typed、文件、回执和带原生心跳的真实 WebSocket 示例。RocketMQ 模块暂未进入本阶段交付范围，不作为默认可用链路。
 
 ## 业务流程总览
 
@@ -22,20 +22,20 @@ flowchart TD
     Target -->|"本地"| Business["查找业务订阅者并调用 subscribe"]
     Target -->|"文件示例"| File["只追加文件，由读取器另行消费"]
     Publisher -->|"本地任务执行时"| Event["按 protocolType 调用网关事件订阅者"]
-    Kind -->|"PING 等不发布事件"| Event
-    Event --> Reply["通过连接目录找到当前用户和设备，返回 ACK 或 PONG"]
+    Kind -->|"FETCH_USER_STATUS 等不发布事件"| Event
+    Event --> Reply["通过连接目录找到当前用户和设备，返回 ACK 或在线状态"]
     Reply --> Client
 ```
 
-图中的“业务订阅者”和“网关事件订阅者”职责不同：前者执行业务处理，后者处理 ACK、PONG 等网关响应。业务异常时不会继续发送成功 ACK，连接会关闭。自定义发布器若只负责落文件或入队，返回只代表该发布步骤完成，不能据此认为后续消费者已经处理成功。
+图中的“业务订阅者”和“网关事件订阅者”职责不同：前者执行业务处理，后者处理 ACK、在线状态等网关响应。业务异常时不会继续发送成功 ACK，连接会关闭。自定义发布器若只负责落文件或入队，返回只代表该发布步骤完成，不能据此认为后续消费者已经处理成功。
 
 ## 当前能力与边界
 
 - `MultiDeviceConnectionRegistry` 按用户和设备登记连接，同用户同设备的新连接替换旧连接；旧关闭回调不会删除新连接。查询集合返回只读快照。
 - `NettyWebsocketConnection` 提供异步发送和关闭；本地写完成不代表客户端已经确认收到。
-- `WebSocketGateway` 解析二进制 `Protocol`，使用认证身份覆盖客户端填写的发送者和设备，再分发消息。IM 进入业务发布后生成 ACK；PING 返回 PONG。
-- ACK 按当前用户和设备定位连接，因此重连后可以在新连接收到旧请求的 ACK，客户端应根据消息标识关联请求。ACK/PONG/状态发送的异步失败会记录 WARN，当前不自动重试。
-- 单帧及分片合计上限为 **655360 字节（640 KiB）**，不启用压缩。连续 10 秒没有读到数据时关闭连接，客户端应保持相应心跳。
+- `WebSocketGateway` 解析二进制 `Protocol`，使用认证身份覆盖客户端填写的发送者和设备，再分发消息。IM 进入业务发布后生成 ACK。原生 PING/PONG 由 Netty 处理，不经过 `Protocol` 或业务订阅者。
+- ACK 按当前用户和设备定位连接，因此重连后可以在新连接收到旧请求的 ACK，客户端应根据消息标识关联请求。ACK/状态发送的异步失败会记录 WARN，当前不自动重试。
+- 单帧及分片合计上限为 **655360 字节（640 KiB）**，不启用压缩。握手后连续 10 秒无输入时发送原生 WebSocket PING，连续 30 秒无输入时关闭连接；原生 PONG 和业务输入都会刷新读计时。浏览器自动回复 PONG，前端不需要心跳定时器。
 - 未支持的事件、损坏报文或业务处理异常会关闭连接；异常记录在服务端，不返回成功 ACK。可选首页资源没有提供时返回 HTTP 404。联系人在线状态目前仍是占位回复，不代表已实现真实查询。
 - 消息持久化、离线消息、跨实例连接定位、可靠重发和生产容量尚不在当前实现承诺内。文件例子也不是生产消息队列。
 
@@ -97,11 +97,11 @@ public class MessagingConfig {
 }
 ```
 
-`@EnableMessage` 装配连接目录、普通/typed 映射表、`DefaultPublisher`、`DefaultTypedPublisher`、`PublishStrategy`、`TypedPublishStrategy` 和 IM、AI、PING、状态查询的本地处理器。
+`@EnableMessage` 装配连接目录、普通/typed 映射表、`DefaultPublisher`、`DefaultTypedPublisher`、`PublishStrategy`、`TypedPublishStrategy` 和 IM、AI、状态查询的本地处理器。
 
 - 普通对象订阅者继承 `AbstractSpringSubscriber<你的消息类>`，实现 `subscribe` 并注册为 Spring Bean。
 - typed 业务订阅者继承 `AbstractSpringTypedSubscriber<你的消息类>`，实现 `subscribe`，通过 `getProtocolType()` 和 `getMessageType()` 分别声明协议类型与业务消息编号，并覆盖 `localImmediately()` 返回 `false`；类型和编号必须与发送的消息一致。
-- 本地回执、心跳等处理器使用 `getProtocolType()`，保留 `localImmediately()` 默认值 `true`，不需要声明业务消息编号；它与业务订阅分别登记，互不覆盖。
+- 本地回执、状态查询等处理器使用 `getProtocolType()`，保留 `localImmediately()` 默认值 `true`，不需要声明业务消息编号；它与业务订阅分别登记，互不覆盖。
 - 消息编号由业务管理，保持在协议的 0–65535 范围；同一事件类型下，同一个有效编号的后登记订阅者会覆盖前者；不同事件类型各自保存业务编号。
 
 两个订阅基类直接在 `afterSingletonsInstantiated()` 中取得最终 Spring Bean 并自行登记。登记先于 `SmartLifecycle.start()`，不依赖应用事件广播器是否异步，方法上的鉴权、事务等拦截仍然生效。订阅者须使用启动时创建的普通单例，不支持懒加载或依赖 `FactoryBean` 产品自动登记；开启全局懒加载时，须将订阅者显式设为 `@Lazy(false)`。不要在构造器或 `afterPropertiesSet` 中发送业务消息；子类覆盖该回调时须调用 `super.afterSingletonsInstantiated()`。
@@ -139,7 +139,7 @@ flowchart TD
 | 普通本地消息 | `Event` 消息类、`AbstractSpringSubscriber` 子类、使用已装配的 `PublishStrategy` | 按消息类名登记、默认本地分发 |
 | typed 本地消息 | `TypedEvent` 消息、声明相同事件类型和业务编号的 `AbstractSpringTypedSubscriber` 子类 | `TypedPublishStrategy`、按事件类型与业务编号查找 |
 | 自定义发布目标 | 对应的 `Publisher` 或 `TypedPublisher` Bean，以及路由映射 | 按路由选择发布器及默认回退 |
-| WebSocket | 真实认证器、业务订阅者、Spring 与 Sparrow 容器绑定、服务器生命周期管理 | 握手与协议解析、连接目录、默认 IM 回执与心跳响应 |
+| WebSocket | 真实认证器、业务订阅者、Spring 与 Sparrow 容器绑定、服务器生命周期管理 | 握手与协议解析、连接目录、默认 IM 回执与 Netty 原生心跳 |
 
 目前 typed 订阅表按两层索引查找：先找 `protocolType`，再找 `messageType`。例如消息是 `IM + 101`，业务订阅者就必须同时返回 `DefaultProtocolType.IM` 和编号为 `101` 的 `MessageType`；缺少事件类型的订阅者会在登记时明确报错；消息编号为空或超出 0–65535 时也会拒绝登记。
 
@@ -199,9 +199,9 @@ flowchart TD
 
 ## WebSocket 接入
 
-`@EnableMessage` 不启动服务器、不绑定端口，也不提供生产认证。业务项目需要提供 `Authenticator`，并完成 Spring Bean 与 Netty 所用 Sparrow 容器的绑定。示例 `ExistingWebSocketServer` 展示了 `Authenticator`、`ConnectionRegistry`、`TypedPubSubMappingContainer` 和 `TypedPublishStrategy` 的绑定方式。
+`@EnableMessage` 不启动服务器、不绑定端口，也不提供生产认证。业务项目需要提供 `Authenticator`，并完成 Spring Bean 与 Netty 所用 Sparrow 容器的绑定。示例 `ExistingWebSocketServer` 展示了 `Authenticator`、`ConnectionRegistry`、`TypedPubSubMappingContainer` 和 `TypedPublishStrategy` 的绑定方式；示例应用另绑定 `LocalMemorySeedService` 供消息序号使用。
 
-WebSocket 路径为 `/websocket`，应用消息使用二进制 `Protocol`，不是文本 `PING/PONG`。当前单聊会话 key 沿用既有格式；参与者类别为单数字，ID 不超过 99 个 Java 字符，同时满足 UTF-8 编码不超过 255 字节。无法表达的数据明确拒绝，不截断字段。
+WebSocket 路径为 `/websocket`，应用消息使用二进制 `Protocol`，心跳使用原生控制帧 opcode 0x9/0xA；旧应用层编号30/40已移除。当前单聊会话 key 沿用既有格式；参与者类别为单数字，ID 不超过 99 个 Java 字符，同时满足 UTF-8 编码不超过 255 字节。无法表达的数据明确拒绝，不截断字段。
 
 `MessageUniqueIdentify` 的两参数模式使用时间戳作为消息 ID，要求同一用户的 `clientSendTime` 唯一。同用户同毫秒可能有多条消息或多设备并发时，请使用带 `clientMessageId` 的三参数构造方法；重试复用原来的时间和 ID。
 
@@ -234,12 +234,11 @@ sequenceDiagram
         E->>R: 查找发送者当前设备连接
         R-->>E: 当前有效连接
         E-->>C: 异步发送 ACK
-    else PING 心跳
-        W->>E: 按 PING 事件查找并调用 subscribe
-        E->>R: 查找发送者当前设备连接
-        R-->>E: 当前有效连接
-        E-->>C: 异步发送 PONG
     end
+    Note over C,W: 以下心跳由协议栈处理，不经过业务订阅者
+    W->>C: 10 秒读空闲，原生 PING
+    C-->>W: 浏览器自动回复原生 PONG
+    W->>W: 刷新读空闲计时，30 秒无输入则关闭
 ```
 
 上图展示默认本地发布。ACK 表示网关已收到并解析该消息，不表示业务处理成功，也不表示收件人已收到或已读。本地任务进入当前 pipeline 队列，不是独立业务线程；同步 Publisher 返回后任务才有机会执行。业务执行方式由 Publisher 决定。业务或本地处理失败时返回现有 ERROR 报文并保留连接；损坏报文、无效身份或失效连接仍关闭连接，严重 Error 关闭连接并抛出。FETCH_USER_STATUS 请求使用编号45，SEND_USER_STATUS 回复使用编号50，旧的50查询入口不再支持。业务下行消息由业务项目显式调用 `ConnectionRegistry` 查找目标连接，再使用 `ClientConnection.sendMessage(...)` 发送；本项目不会自动把任意业务消息转发给收件人。
@@ -285,9 +284,8 @@ HTTP 服务与 WebSocket 服务若分开运行，两个进程都需要设置上�
 | typed 消息 | `typed.greeting.MessagingExampleApplication` | 按事件类型和业务消息编号分发 |
 | typed 路由 | `typed.routing.RoutingExampleApplication` | 选择自定义 typed 发布器 |
 | typed 文件 | `typed.file.FileExampleApplication` | 保存和读取事件类型、消息编号及正文 |
-| 内存 PING/PONG | `typed.event.ping.PingExampleApplication` | 验证心跳响应 |
 | 内存 IM/ACK | `typed.event.message.MessageExampleApplication` | 验证业务消息和回执 |
-| 真实 WebSocket | `websocket.WebSocketExampleApplication` | 启动本地示例服务并使用固定测试 token 收发；仅作演示 |
+| 真实 WebSocket | `websocket.WebSocketExampleApplication` | 启动本地示例服务，等待服务器原生 PING，协议栈自动回复 PONG，再发送 IM 验证 ACK；仅作演示 |
 
 可以在 IDE 直接运行对应 `main`。真实 WebSocket 示例会自行选择本地空闲端口；业务服务需要自行管理服务器启动和关闭。本地依赖已安装时，文件示例命令为：
 

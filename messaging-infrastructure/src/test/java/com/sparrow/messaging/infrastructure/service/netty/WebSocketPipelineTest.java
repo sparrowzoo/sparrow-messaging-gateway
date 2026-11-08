@@ -87,22 +87,93 @@ class WebSocketPipelineTest {
     }
 
     @Test
-    void readIdleClosesTheActualConfiguredPipeline() {
-        try (var server = new Server()) {
-            server.channel.advanceTimeBy(11, TimeUnit.SECONDS);
-            server.channel.runScheduledPendingTasks();
+    void heartbeatDoesNotWriteControlFramesBeforeHandshakeCompletes() {
+        EmbeddedChannel channel = new EmbeddedChannel(new WebSocketHeartbeatHandler());
+        try {
+            channel.advanceTimeBy(11, TimeUnit.SECONDS);
+            channel.runScheduledPendingTasks();
+            assertNull(channel.readOutbound());
+            assertTrue(channel.isActive());
+        } finally {
+            channel.finishAndReleaseAll();
+        }
+    }
+
+    @Test
+    void readIdleSendsNativePingAndClosesAfterThirtySecondsWithoutInput() {
+        try (Server server = new Server()) {
+            for (int i = 0; i < 2; i++) {
+                server.advance(10);
+                assertTrue(server.channel.isActive());
+                WebSocketFrame frame = server.readFrame();
+                assertInstanceOf(PingWebSocketFrame.class, frame);
+                frame.release();
+            }
+            server.advance(11);
             assertFalse(server.channel.isActive());
         }
     }
 
     @Test
-    void continuousReadsAreNotClosedForLackOfWrites() {
-        try (var server = new Server()) {
-            for (int i = 0; i < 3; i++) {
-                server.channel.advanceTimeBy(6, TimeUnit.SECONDS);
-                assertTrue(server.receive(new BinaryWebSocketFrame(Unpooled.wrappedBuffer(new byte[]{40}))));
+    void nativePongKeepsConnectionAliveAndNeverReachesBusinessHandlers() {
+        try (Server server = new Server()) {
+            for (int i = 0; i < 4; i++) {
+                server.advance(11);
+                assertTrue(server.channel.isActive());
+                WebSocketFrame ping = server.readFrame();
+                assertInstanceOf(PingWebSocketFrame.class, ping);
+                ping.release();
+                assertFalse(server.receive(new PongWebSocketFrame()));
+                assertNull(server.channel.readInbound());
+                assertTrue(server.channel.isActive());
+            }
+        }
+    }
+
+    @Test
+    void outgoingBusinessMessagesDoNotSuppressProbesOrExtendReadTimeout() {
+        try (Server server = new Server()) {
+            for (int i = 0; i < 2; i++) {
+                server.channel.writeAndFlush(new TextWebSocketFrame("stream chunk"));
+                ReferenceCountUtil.release(server.readFrame());
+                server.advance(10);
+                WebSocketFrame ping = server.readFrame();
+                assertInstanceOf(PingWebSocketFrame.class, ping);
+                ping.release();
+            }
+            server.channel.writeAndFlush(new TextWebSocketFrame("stream chunk"));
+            ReferenceCountUtil.release(server.readFrame());
+            server.advance(11);
+            assertFalse(server.channel.isActive());
+        }
+    }
+
+    @Test
+    void nativeClientPingIsAnsweredByNettyWithoutEnteringBusinessHandlers() {
+        try (Server server = new Server()) {
+            assertFalse(server.receive(new PingWebSocketFrame(Unpooled.wrappedBuffer(new byte[]{1, 2, 3}))));
+            WebSocketFrame pong = server.readFrame();
+            try {
+                assertInstanceOf(PongWebSocketFrame.class, pong);
+                assertEquals(3, pong.content().readableBytes());
+                assertEquals(1, pong.content().readByte());
+                assertEquals(2, pong.content().readByte());
+                assertEquals(3, pong.content().readByte());
+            } finally {
+                pong.release();
+            }
+            assertNull(server.channel.readInbound());
+        }
+    }
+
+    @Test
+    void businessInputAlsoResetsReadIdle() {
+        try (Server server = new Server()) {
+            for (int i = 0; i < 5; i++) {
+                server.advance(8);
+                assertTrue(server.receive(new BinaryWebSocketFrame(Unpooled.wrappedBuffer(new byte[]{45}))));
                 ReferenceCountUtil.release(server.channel.readInbound());
-                server.channel.runScheduledPendingTasks();
+                assertNull(server.channel.readOutbound());
                 assertTrue(server.channel.isActive());
             }
         }
@@ -145,6 +216,24 @@ class WebSocketPipelineTest {
                 ReferenceCountUtil.release(output);
             }
             response = text.toString();
+        }
+
+        void advance(int seconds) {
+            channel.advanceTimeBy(seconds, TimeUnit.SECONDS);
+            channel.runScheduledPendingTasks();
+        }
+
+        WebSocketFrame readFrame() {
+            EmbeddedChannel decoder = new EmbeddedChannel(new WebSocket13FrameDecoder(false, false, LIMIT));
+            try {
+                Object bytes;
+                while ((bytes = channel.readOutbound()) != null) {
+                    decoder.writeInbound(bytes);
+                }
+                return decoder.readInbound();
+            } finally {
+                decoder.finishAndReleaseAll();
+            }
         }
 
         boolean receive(WebSocketFrame frame) {

@@ -53,7 +53,7 @@ class SubscriberStartupTest {
             });
             context.register(MessageConfiguration.class);
             context.refresh();
-            assertNotNull(context.getBean(TypedPubSubMappingContainer.class).getImmediately(ping()));
+            assertNotNull(context.getBean(TypedPubSubMappingContainer.class).getImmediately(statusQuery()));
             assertEquals(0, notified.get(), "Unrelated application events must remain asynchronous");
             new ArrayList<>(callbacks).forEach(Runnable::run);
             assertEquals(1, notified.get());
@@ -74,7 +74,7 @@ class SubscriberStartupTest {
                         .get(SubscriberProxyTest.PlainEvent.class.getName()));
                 assertSame(context.getBean("typed"), context.getBean(TypedPubSubMappingContainer.class)
                         .get(new SubscriberProxyTest.SampleTypedEvent()));
-                assertNotNull(context.getBean(TypedPubSubMappingContainer.class).getImmediately(ping()));
+                assertNotNull(context.getBean(TypedPubSubMappingContainer.class).getImmediately(statusQuery()));
                 starts.incrementAndGet();
             }));
             context.refresh();
@@ -199,10 +199,10 @@ class SubscriberStartupTest {
         }
     }
 
-    private static Protocol ping() {
-        var ping = new Protocol();
-        ping.setProtocolType(DefaultProtocolType.PING);
-        return ping;
+    private static Protocol statusQuery() {
+        var query = new Protocol();
+        query.setProtocolType(DefaultProtocolType.FETCH_USER_STATUS);
+        return query;
     }
 
     static class BusinessLifecycle implements SmartLifecycle {
